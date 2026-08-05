@@ -292,6 +292,21 @@ Labels by verdict:
 - **REVISE**: add `strat-creator-needs-attention`
 - **REJECT**: add `strat-creator-needs-attention`
 
+Consistency hard gate:
+
+- Read the completed review body before applying labels.
+- If it contains `**Consistency**: contradictions-found` and any finding has
+  `Severity: high` or `Severity: critical`, add both
+  `strat-creator-consistency-needs-attention` and
+  `strat-creator-needs-attention`.
+- Do not add `strat-creator-rubric-pass` when this hard gate is active, even if
+  the numeric score is APPROVE. The dedicated label records the reason; the
+  standard needs-attention label prevents `strategy-signoff` from proceeding.
+- The numeric score and recommendation field remain unchanged. This is a
+  separate blocking policy, not a fifth score dimension.
+- For `clear`, or contradictions below high severity, retain the ordinary
+  verdict-label behavior and do not apply the blocking consistency label.
+
 Print `[LABEL] <label> added to RHAISTRAT-NNNN`.
 
 In dry-run mode, skip and print `[DRY RUN] Skipping labels for RHAISTRAT-NNNN`.
@@ -299,7 +314,8 @@ In dry-run mode, skip and print `[DRY RUN] Skipping labels for RHAISTRAT-NNNN`.
 ## Step 8: Advise the User
 
 Based on the result:
-- **Approved** (`needs_attention=false`): Tell the user the strategy is ready for sign-off.
+- **Approved with no blocking consistency finding** (`needs_attention=false`): Tell the user the strategy is ready for sign-off.
+- **Blocked by consistency**: Tell the user that the numeric score may be APPROVE, but a high/critical contradiction requires PM/SME resolution before sign-off. Include the open question and the two conflicting claims.
 - **Needs revision** (`needs_attention=true`, verdict=REVISE): List specific issues by dimension. Tell the user to edit the strategy, remove `needs-attention`, and re-run `/strategy-review`.
 - **Fundamental problems** (`needs_attention=true`, verdict=REJECT): Recommend revisiting the RFE or re-running `/strategy-refine` with different constraints.
 
