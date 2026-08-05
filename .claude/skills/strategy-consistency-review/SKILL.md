@@ -71,6 +71,24 @@ Do not report mere terminology variation unless it changes the mechanism,
 scope, API, component, or user-visible behavior. Do not flag hypothetical
 architecture concerns without grounding them in the architecture context.
 
+### Immutable RFE requirement rule
+
+Treat explicit User Flow, Acceptance Criteria, High Level Requirements,
+deliverables, and scope statements in the frozen RFE snapshot as obligations,
+not as informal business labels. Removed implementation context and RFE
+comments are technical proposals or evidence; they do not silently authorize
+changing an immutable RFE obligation.
+
+When an RFE requires a concrete resource kind, API, or user-visible behavior,
+and the strategy selects a different mechanism, report a contradiction if the
+source RFE does not explicitly define the relationship. In particular, an RFE
+acceptance criterion requiring a `DataRegistry CR` conflicts with a strategy
+that uses only `FeatureStore CR` and excludes a `DataRegistry` CRD. Treating
+`DataRegistry` as a business alias for `FeatureStore` is a possible
+resolution, not an established fact, unless the source RFE or an explicit SME
+decision says so. The required resolution must ask for that decision or for
+the affected RFE/strategy requirement to be corrected.
+
 ## Output
 
 Return exactly this structure for each strategy:
