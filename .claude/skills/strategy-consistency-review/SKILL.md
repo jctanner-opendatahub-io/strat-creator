@@ -105,13 +105,18 @@ Return exactly this structure for each strategy:
   - Severity: <critical / high / medium / low>
 
 **Required resolution**: <decision needed, or "none">
+**Open question for strategy refinement**: <one question for the SME/PM to answer, or "none">
 **Recommendation**: <approve / revise / escalate for human decision>
 ```
 
 For a clear strategy, write `**Findings**: none identified` and
-`**Required resolution**: none`. For missing source material, list the missing
-files and explain which checks could not be completed. Keep the review
-informational: this result is prose appended to the review artifact and does
-not change the existing numeric score or verdict.
+`**Required resolution**: none` and `**Open question for strategy refinement**:
+none`. For contradictions, phrase the open question so that an SME/PM can
+answer it without interpreting the reviewer's preferred implementation. For
+the `DataRegistry CR`/`FeatureStore CR` case, ask whether `DataRegistry` is an
+intentional business-level alias for `FeatureStore`, or whether the RFE
+requires an actual `DataRegistry` CR. Keep the review informational: this
+result is prose appended to the review artifact and does not change the
+existing numeric score or verdict.
 
 $ARGUMENTS

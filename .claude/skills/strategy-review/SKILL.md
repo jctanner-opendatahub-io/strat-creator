@@ -222,8 +222,17 @@ Compose the comment in markdown using this format:
 
 {For each dimension scored < 2, one sentence summarizing the issue from the prose review.}
 
+{If the consistency review found contradictions, include:}
+**Consistency:** contradictions-found
+**Open question for strategy refinement:** {the exact SME/PM decision needed}
+
 **Action:** {verdict-specific guidance}
 ```
+
+The consistency follow-up must be included in the Jira summary comment when
+the consistency reviewer reports `contradictions-found`. It should state the
+decision needed without choosing a resolution. This makes the issue visible
+to SMEs and PMs without rewriting the strategy description.
 
 Action text by verdict:
 - **APPROVE**: "No action needed — strategy passed quality review."
