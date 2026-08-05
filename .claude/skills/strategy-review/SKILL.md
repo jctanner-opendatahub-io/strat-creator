@@ -132,13 +132,14 @@ REJECT:   total < 3   OR   2+ zeros       → needs_attention=true
 
 ## Step 6: Run Prose Reviews
 
-Use the **Skill tool** to invoke all four reviewer skills in parallel. Each runs in its own isolated `context: fork` — no reviewer sees another's output. Pass the strategy key to each:
+Use the **Skill tool** to invoke all five reviewer skills in parallel. Each runs in its own isolated `context: fork` — no reviewer sees another's output. Pass the strategy key to each:
 
 ```
 Skill(skill="strategy-feasibility-review", args="RHAISTRAT-NNNN")
 Skill(skill="strategy-testability-review", args="RHAISTRAT-NNNN")
 Skill(skill="strategy-scope-review", args="RHAISTRAT-NNNN")
 Skill(skill="strategy-architecture-review", args="RHAISTRAT-NNNN")
+Skill(skill="strategy-consistency-review", args="RHAISTRAT-NNNN")
 ```
 
 Do NOT use the Agent tool for reviews. Use the Skill tool — the reviewer skills are defined in `.claude/skills/` and contain specific review instructions.
@@ -147,12 +148,13 @@ Do NOT use the Agent tool for reviews. Use the Skill tool — the reviewer skill
 - **`strategy-testability-review`**: Are acceptance criteria testable? What edge cases are missing?
 - **`strategy-scope-review`**: Is the strategy right-sized? Does the effort match the scope?
 - **`strategy-architecture-review`** (if architecture context available): Are dependencies correctly identified? Are integration patterns correct?
+- **`strategy-consistency-review`**: Do the Business Need, source RFE context, strategy sections, and architecture context make mutually compatible claims?
 
 Each reviewer auto-detects local mode (`local/strat-tasks/` vs `artifacts/strat-tasks/`) and reads the appropriate directories.
 
 ## Step 7: Write Prose to Review Files
 
-Update the review file body in `artifacts/strat-reviews/{id}-review.md` with the prose from all four reviewers. The scores table was already written by `apply_scores.py` in Step 5 — add the prose sections after it.
+Update the review file body in `artifacts/strat-reviews/{id}-review.md` with the prose from all five reviewers. The scores table was already written by `apply_scores.py` in Step 5 — add the prose sections after it.
 
 The review file body should contain:
 
@@ -172,6 +174,9 @@ The review file body should contain:
 ## Architecture Review: {STRAT_ID} — {title}
 <assessment from architecture reviewer, or "skipped — no context">
 
+## Consistency Review: {STRAT_ID} — {title}
+<assessment from consistency reviewer>
+
 ## Agreements
 <where reviewers aligned>
 
@@ -189,7 +194,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set artifacts/strat-reviews/<
     reviewers.architecture=<prose_verdict>
 ```
 
-**Important:** The `recommendation` field is NEVER changed by prose reviewers. It comes from the numeric scores only. Prose reviewers set their own `reviewers.*` verdicts for informational purposes — these do NOT affect the gate decision.
+**Important:** The `recommendation` field is NEVER changed by prose reviewers. It comes from the numeric scores only. Prose reviewers set their own `reviewers.*` verdicts for informational purposes — these do NOT affect the gate decision. The consistency reviewer is informational prose only and has no numeric or frontmatter reviewer field in this initial implementation.
 
 **Preserve disagreements.** If the feasibility reviewer says "this is fine" but the scope reviewer says "this is too big," report both views. Do not average or harmonize.
 
