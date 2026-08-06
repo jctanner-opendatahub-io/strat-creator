@@ -67,6 +67,17 @@ priority relationship if one exists, but still report the contradiction. A
 Staff Engineer / SME directive may be the intended resolution; it is not proof
 that the immutable Business Need and the strategy are internally consistent.
 
+An explicit decision in `## Staff Engineer / SME Input` is different from an
+inference: when it directly defines the relationship between the conflicting
+terms and the strategy implements that decision, treat the conflict as
+resolved for this review. For example, an SME decision that `DataRegistry CR`
+is the business-level name for the existing `FeatureStore CR` establishes the
+mapping and makes the strategy/source-context check clear. Do not emit a
+blocking contradiction for the frozen RFE wording in that case. The immutable
+RFE may still need a later documentation cleanup, but that is not an unresolved
+strategy consistency finding. If the strategy does not implement the explicit
+decision, report that mismatch normally.
+
 Do not report mere terminology variation unless it changes the mechanism,
 scope, API, component, or user-visible behavior. Do not flag hypothetical
 architecture concerns without grounding them in the architecture context.
@@ -81,13 +92,13 @@ changing an immutable RFE obligation.
 
 When an RFE requires a concrete resource kind, API, or user-visible behavior,
 and the strategy selects a different mechanism, report a contradiction if the
-source RFE does not explicitly define the relationship. In particular, an RFE
-acceptance criterion requiring a `DataRegistry CR` conflicts with a strategy
-that uses only `FeatureStore CR` and excludes a `DataRegistry` CRD. Treating
-`DataRegistry` as a business alias for `FeatureStore` is a possible
-resolution, not an established fact, unless the source RFE or an explicit SME
-decision says so. The required resolution must ask for that decision or for
-the affected RFE/strategy requirement to be corrected.
+source RFE does not explicitly define the relationship and there is no direct
+SME decision establishing it. In particular, an RFE acceptance criterion
+requiring a `DataRegistry CR` conflicts with a strategy that uses only
+`FeatureStore CR` and excludes a `DataRegistry` CRD. Treating `DataRegistry` as
+a business alias for `FeatureStore` is a possible resolution until the source
+RFE or an explicit SME decision says so. Once the SME decision is explicit and
+implemented, return `clear` and do not ask the same open question again.
 
 ## Output
 
