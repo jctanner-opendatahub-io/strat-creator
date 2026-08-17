@@ -41,10 +41,12 @@ RHAISTRAT-2577.
 
 ## Expected
 
-Repository tests run only when repository implementation or test files change,
-or when a workflow explicitly requires those tests. Changes limited to
-generated strategy artifacts, their frontmatter or history, review attachments,
-and Jira fields or labels do not trigger the strat-creator test suite.
+Repository tests run only when executable implementation, test, configuration,
+or build files change (`scripts/`, `tests/`, `Makefile`, `pyproject.toml`).
+Agent instruction changes (`CLAUDE.md`, `.claude/skills/*/SKILL.md`) require
+only skill-integrity checks. Documentation-only changes and workflow output
+(strategy artifacts, frontmatter, review attachments, Jira fields and labels)
+do not trigger the strat-creator test suite.
 
 ## Actual
 
@@ -110,15 +112,13 @@ tests.
 
 ## Proposed Fix
 
-Clarify the root Testing instructions so their mandatory test rule applies only
-when repository implementation or test files change. Explicitly state that
-artifact-only, frontmatter/history-only, review-attachment-only, and Jira-only
-changes do not require repository tests.
-
-For stronger enforcement, add a completion-time source-diff check shared by
-strategy workflows. Run the relevant suite only if tracked implementation or
-test paths changed. Keep `make test` mandatory before an actual remote push of
-repository code.
+Replace the ambiguous Testing section with tiered verification rules: require
+repository tests only for executable implementation, test, configuration, and
+build files (`scripts/`, `tests/`, `Makefile`, `pyproject.toml`); require
+skill-integrity checks for agent instruction files (`CLAUDE.md`,
+`.claude/skills/*/SKILL.md`); exempt documentation-only changes and workflow
+output (artifacts, frontmatter, Jira updates) entirely. Keep `make test`
+mandatory before an actual remote push of repository code.
 
 ## Implementation
 
