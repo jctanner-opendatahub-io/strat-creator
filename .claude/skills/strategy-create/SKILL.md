@@ -61,18 +61,18 @@ The user can select specific ones or "all."
 
 ## Step 2a: Status and Label Gate
 
-For each selected RFE, fetch its status and labels from Jira (the `status` and `labels` fields are already included in the Step 1 fetch).
+For each selected RFE, fetch its status and labels from Jira (the `status` and `labels` fields are already included in the Step 1 fetch). Read `config/pipeline-settings.yaml` and use its `jql` settings as the source of truth for the gate below. Do not maintain a separate hard-coded release or quality label allowlist in this skill.
 
-**Status check**: If the RFE status is **Closed** or **Resolved**, skip it — the RFE is no longer active. Append to `artifacts/strat-skipped.md` with reason: `RFE status: <status>`. Print `[SKIPPED] RHAIRFE-NNNN — RFE is <status>`.
+**Status check**: If the RFE status is in `jql.excluded_statuses`, skip it — the RFE is no longer active. Append to `artifacts/strat-skipped.md` with reason: `RFE status: <status>`. Print `[SKIPPED] RHAIRFE-NNNN — RFE is <status>`.
 
-**Label check**: Check that the RFE has **both**:
+**Scope and quality checks**:
 
-1. `strat-creator-3.5` or `strat-creator-3.6` label **OR** a Target Version (`customfield_10855`) matching any version in `pipeline-settings.yaml` `target_versions`
-2. At least one of: `rfe-creator-autofix-rubric-pass` or `tech-reviewed`
+1. **Release scope**: The RFE has at least one label from `jql.required_labels` **OR** a Target Version (`customfield_10855`) matching an entry in `jql.target_versions`.
+2. **Quality**: If `jql.quality_labels` is non-empty, the RFE has at least one of those labels.
 
-To check Target Version, fetch the `customfield_10855` field from Jira. It is an array of version objects with a `name` property (e.g., `[{"name": "3.6 EA1 RHOAI RELEASE"}]`). Match against the `target_versions` list in `pipeline-settings.yaml`.
+To check Target Version, fetch the `customfield_10855` field from Jira. It is an array of version objects with a `name` property (e.g., `[{"name": "3.6 EA1 RHOAI RELEASE"}]`). Compare those names with `jql.target_versions`. Treat each configured list as data; do not copy its current values into this skill.
 
-If an RFE fails the label gate, **skip it** — do not create a strategy stub. Instead, append it to `artifacts/strat-skipped.md`.
+If an RFE fails either configured gate, **skip it** — do not create a strategy stub. Instead, append it to `artifacts/strat-skipped.md`, explaining whether it failed release scope or quality labels.
 
 Determine the **run identifier**: use the config filename from `$ARGUMENTS` (e.g., `road-to-production`) + current UTC timestamp in ISO format. Example: `road-to-production @ 2026-04-21T14:30Z`. If no config filename is available, use `manual`.
 
