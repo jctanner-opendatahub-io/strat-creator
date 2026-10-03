@@ -81,16 +81,16 @@ If `artifacts/strat-skipped.md` does not exist, create it with the header. If it
 ```markdown
 # Skipped RFEs
 
-RFEs that were not processed due to missing required labels or already-processed STRATs.
+RFEs that were skipped. The Reason column records why each RFE was skipped.
 
 | RFE Key | Title | Reason | Run |
 |---------|-------|--------|-----|
-| RHAIRFE-NNNN | ... | missing labels: rfe-creator-autofix-rubric-pass or tech-reviewed | road-to-production @ 2026-04-21T14:30Z |
+| RHAIRFE-NNNN | ... | <recorded skip reason> | road-to-production @ 2026-04-21T14:30Z |
 ```
 
-Print `[SKIPPED] RHAIRFE-NNNN — missing required labels: <list>` for each skipped RFE.
+For each skipped RFE, print `[SKIPPED] RHAIRFE-NNNN — <recorded skip reason>`.
 
-If **all** selected RFEs are skipped, stop and tell the user none of the provided RFEs have the required labels.
+If **all** selected RFEs are skipped, stop and tell the user all selected RFEs were skipped. Direct the user to `artifacts/strat-skipped.md` for the recorded reasons.
 
 ## Step 3: Clone RFE to RHAISTRAT in Jira
 

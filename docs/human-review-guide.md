@@ -16,7 +16,7 @@ Not every RHAIRFE issue gets a strategy. The pipeline selects RFEs that pass two
    - Has any label listed in `jql.required_labels`, **OR**
    - Has a Target Version listed in `jql.target_versions`
 2. **Quality gate** — the RFE has been validated:
-   - Has at least one label listed in `jql.quality_labels`
+   - If `jql.quality_labels` is non-empty, has at least one label from that list
 
 Statuses listed in `jql.excluded_statuses` are excluded. These filter values live in [`config/pipeline-settings.yaml`](../config/pipeline-settings.yaml).
 
