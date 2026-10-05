@@ -1,0 +1,33 @@
+entrypoint:
+  command:
+    - scripts/strategy-entrypoint.sh
+    - "${RFE_KEY}"
+  stream_format: none
+
+role: triage
+description: Create, refine, and review one approved RFE through strat-creator.
+image: localhost/strat-creator-sandbox:m4
+policy: policies/strategy.yaml
+model: opus
+effort: high
+timeout_minutes: 60
+sandbox_timeout_seconds: 300
+providers:
+  - vertex-ai
+openshell:
+  profiles:
+    - profiles/strat-creator-services.yaml
+env:
+  sandbox:
+    RFE_KEY: "${RFE_KEY}"
+    JIRA_SERVER: "${JIRA_SERVER}"
+    JIRA_USER: "${JIRA_USER}"
+    JIRA_TOKEN: "${JIRA_TOKEN}"
+    RESULTS_REPO_URL: "${RESULTS_REPO_URL}"
+    RESULTS_PUSH_TOKEN: "${RESULTS_PUSH_TOKEN}"
+    RESULTS_GIT_USER: "${RESULTS_GIT_USER}"
+    CLAUDE_CODE_USE_VERTEX: "1"
+    ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID}"
+    CLOUD_ML_REGION: "global"
+    ORG_PULSE_URL: "${ORG_PULSE_URL}"
+    ORG_PULSE_API_TOKEN: "${ORG_PULSE_API_TOKEN}"
