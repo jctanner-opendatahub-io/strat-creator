@@ -2,6 +2,8 @@
 import fnmatch
 import os
 import subprocess
+import json
+import sys
 from pathlib import Path
 
 import yaml
@@ -140,6 +142,64 @@ def test_child_wrapper_uses_fullsend_and_preserves_completion_guard():
     assert 'stream_rc" -eq 42' in wrapper
     assert 'claude_rc" -eq 143' in wrapper
     assert 'claude_rc" -eq 141' in wrapper
+
+
+def test_all_strategy_children_invoke_exact_model_and_force_subagent_pin(tmp_path):
+    """Exercise the real FIFO wrapper/helper/Claude argv chain for every phase."""
+    harness = yaml.safe_load((REPO / ".fullsend/harness/strategy.yaml").read_text())
+    assert harness["model"] == "claude-opus-4-6"
+    root = tmp_path / "repo"
+    ci = root / ".fullsend/scripts/ci"
+    ci.mkdir(parents=True)
+    for name in ("run-claude.sh", "ca-bundle.sh", "stream-claude.py", "strategy-model.sh"):
+        (ci / name).write_text((CI_DIR / name).read_text())
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "invocations.jsonl"
+    # Same argv layout as runtime.ClaudeEntrypointHelper. The live Vertex
+    # smoke independently exercises the actual generated Fullsend helper.
+    (bin_dir / "fullsend-claude").write_text(
+        "#!/bin/sh\nexec claude '--print' '--verbose' '--output-format' 'stream-json' "
+        "'--dangerously-skip-permissions' '--model' "
+        f"'{harness['model']}' '--effort' '{harness['effort']}' "
+        "'--settings' '/sandbox/hooks.json' \"$@\"\n"
+    )
+    (bin_dir / "claude").write_text(
+        f"#!{sys.executable}\n"
+        "import json,os,sys\n"
+        "keys=('ANTHROPIC_DEFAULT_OPUS_MODEL','CLAUDE_CODE_SUBAGENT_MODEL',"
+        "'CLAUDE_CODE_SUBAGENT_MODEL_FORCE','ANTHROPIC_MODEL')\n"
+        "with open(os.environ['MODEL_CAPTURE'],'a') as f: "
+        "f.write(json.dumps({'argv':sys.argv[1:],'env':{k:os.getenv(k) for k in keys}})+'\\n')\n"
+        "print(json.dumps({'type':'system','subtype':'init','model':'claude-opus-4-6'}))\n"
+        "print(json.dumps({'type':'result','is_error':False,'result':'smoke'}))\n"
+    )
+    (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
+    for path in bin_dir.iterdir():
+        path.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "STRAT_CREATOR_ROOT": str(root),
+                "MODEL_CAPTURE": str(capture), "ANTHROPIC_MODEL": "claude-opus-4-8",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "opus", "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+                "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "0", "FULLSEND_CA_BUNDLE_READY": "1"})
+    for phase in ("create", "refine", "review"):
+        prompt = f"/strategy-{phase} TEST-1"
+        result = subprocess.run(["bash", str(ci / "run-claude.sh"), prompt],
+                                cwd=root, env=env, capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+    invocations = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert len(invocations) == 3
+    for invocation, phase in zip(invocations, ("create", "refine", "review")):
+        argv = invocation["argv"]
+        assert argv[argv.index("--model") + 1] == "claude-opus-4-6"
+        assert argv[argv.index("--effort") + 1] == "high"
+        assert "--settings" in argv
+        assert argv[-1] == f"/strategy-{phase} TEST-1"
+        assert invocation["env"] == {
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-6",
+            "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1", "ANTHROPIC_MODEL": None,
+        }
 
 
 def test_reference_image_and_secure_gateway_configuration():

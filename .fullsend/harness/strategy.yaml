@@ -8,7 +8,7 @@ role: triage
 description: Create, refine, and review one approved RFE through strat-creator.
 image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:259605fea321353552fdefd3a6a55e8b5c260998dfc5a622ed143e41a429995a
 policy: policies/strategy.yaml
-model: opus
+model: claude-opus-4-6
 effort: high
 timeout_minutes: 60
 sandbox_timeout_seconds: 300
@@ -32,6 +32,9 @@ env:
     RESULTS_PUSH_TOKEN: "${RESULTS_PUSH_TOKEN}"
     RESULTS_GIT_USER: "${RESULTS_GIT_USER}"
     CLAUDE_CODE_USE_VERTEX: "1"
+    ANTHROPIC_DEFAULT_OPUS_MODEL: claude-opus-4-6
+    CLAUDE_CODE_SUBAGENT_MODEL: claude-opus-4-6
+    CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1"
     ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID}"
     CLOUD_ML_REGION: "global"
     GOOGLE_APPLICATION_CREDENTIALS: /tmp/.gcp-credentials.json

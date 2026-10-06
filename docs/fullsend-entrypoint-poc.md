@@ -29,6 +29,7 @@ export ANTHROPIC_VERTEX_PROJECT_ID='set-me'
 export ORG_PULSE_URL=
 export ORG_PULSE_API_TOKEN=
 # The `fullsend-build/` artifact comes from build-fullsend.sh in the Go job.
+unset FULLSEND_MODEL FULLSEND_FALLBACK_MODELS
 bash .fullsend/scripts/ci/with-openshell.sh -- fullsend run strategy \
   --fullsend-dir "$PWD/.fullsend" \
   --target-repo "$PWD" \
@@ -163,3 +164,22 @@ run.
 
 Detailed file-by-file copy/adaptation provenance is in
 `.fullsend/scripts/ci/SOURCE-PROVENANCE.md`.
+
+## Exact strategy model pin
+
+The POC harness uses `claude-opus-4-6` with effort `high`. Do not replace it
+with the moving `opus` alias or pass a different Fullsend model override.
+The CI caller clears FULLSEND_MODEL/FULLSEND_FALLBACK_MODELS and supplies
+the exact model flag, matching the harness; no fallback model is configured.
+All create/refine/review children use the generated Fullsend helper.
+The strategy wrapper pins ANTHROPIC_DEFAULT_OPUS_MODEL and
+CLAUDE_CODE_SUBAGENT_MODEL to the same ID, with
+CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1, so skill-level opus requests and child
+selection do not silently choose a newer version. These settings are scoped
+to this POC, not unrelated Fullsend harness defaults.
+
+The force setting is documented for Claude Code v2.1.257 and newer; older
+versions before v2.1.251 give the subagent variable precedence directly. See
+[Claude Code subagent model selection](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model).
+Runtime smoke evidence must report the actual parent model, not just the
+requested argument. Historical M6 used 4.8 and is not proof of the new pin.

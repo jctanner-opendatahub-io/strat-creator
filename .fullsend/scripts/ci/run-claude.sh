@@ -10,8 +10,11 @@ if [[ $# -ne 1 ]]; then
 fi
 command -v fullsend-claude >/dev/null || { echo "ERROR: Fullsend did not install fullsend-claude" >&2; exit 127; }
 
+# Scope this pin to the strategy POC, including skill-requested opus subagents.
+# The Fullsend helper carries the same exact model in its generated --model flag.
 ROOT="${STRAT_CREATOR_ROOT:-$PWD}"
 CI_SCRIPTS="$ROOT/.fullsend/scripts/ci"
+source "$CI_SCRIPTS/strategy-model.sh"
 ARTIFACTS="$ROOT/artifacts"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/strat-claude.XXXXXX")"
 FIFO="$TMP_DIR/stream.jsonl"
