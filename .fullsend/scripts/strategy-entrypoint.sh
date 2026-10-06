@@ -27,7 +27,7 @@ if [[ -z "${RESULTS_PUSH_TOKEN:-}" ]]; then
 fi
 auth="$(printf '%s:%s' "${RESULTS_GIT_USER:-oauth2}" "$RESULTS_PUSH_TOKEN" | base64 | tr -d '\n')"
 export GIT_CONFIG_COUNT=1
-export GIT_CONFIG_KEY_0=http.extraHeader
+export GIT_CONFIG_KEY_0="http.${RESULTS_REPO_URL:?RESULTS_REPO_URL is required}.extraHeader"
 export GIT_CONFIG_VALUE_0="Authorization: Basic $auth"
 unset auth
 

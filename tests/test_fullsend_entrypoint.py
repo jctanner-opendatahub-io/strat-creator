@@ -213,10 +213,12 @@ def test_service_permissions_are_in_applied_policy():
         "api.github.com", "raw.githubusercontent.com", "codeload.github.com",
     }
     assert all(entry["port"] == 443 for entry in endpoints.values())
-    assert endpoints["jira.local"]["tls"] == "skip"
-    assert "protocol" not in endpoints["jira.local"]
+    local_hosts = {"jira.local", "gitlab.local", "orgpulse.local"}
+    for host in local_hosts:
+        assert endpoints[host]["tls"] == "skip"
+        assert "protocol" not in endpoints[host]
     assert all(entry["enforcement"] == "enforce" and "tls" not in entry
-               for host, entry in endpoints.items() if host != "jira.local")
+               for host, entry in endpoints.items() if host not in local_hosts)
     assert endpoints["api.github.com"]["access"] == "read-only"
     binaries = [entry["path"] for entry in services["binaries"]]
     assert any(fnmatch.fnmatch(
