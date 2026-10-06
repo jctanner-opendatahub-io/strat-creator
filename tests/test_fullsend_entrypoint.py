@@ -19,6 +19,7 @@ def _run_flow(tmp_path, *, locked=True, fail_stage=""):
         "#!/bin/sh\nmkdir -p \"$2/.git/info\"\n"
     )
     (ci / "clone-data-repo.sh").chmod(0o755)
+    (ci / "ca-bundle.sh").write_text((CI_DIR / "ca-bundle.sh").read_text())
     (ci / "run-claude.sh").write_text(
         "#!/bin/sh\n"
         "printf 'claude %s\\n' \"$1\" >> \"$EVENT_LOG\"\n"
@@ -136,6 +137,64 @@ def test_child_wrapper_uses_fullsend_and_preserves_completion_guard():
     assert 'claude_rc" -eq 141' in wrapper
 
 
+def test_reference_image_and_secure_gateway_configuration():
+    harness = (REPO / ".fullsend/harness/strategy.yaml").read_text()
+    launcher = (CI_DIR / "with-openshell.sh").read_text()
+    claude_wrapper = (CI_DIR / "run-claude.sh").read_text()
+
+    assert "ghcr.io/fullsend-ai/fullsend-sandbox@sha256:259605fea321353552fdefd3a6a55e8b5c260998dfc5a622ed143e41a429995a" in harness
+    assert 'SUPERVISOR_TAG="quay.io/opendatahub/odh-openshell-supervisor:v$VERSION"' in launcher
+    assert "VERSION=0.0.112-rhaiv.0" in launcher
+    assert 'openshell gateway add "https://127.0.0.1:17670" --local' in launcher
+    assert "providers_v2_enabled" in launcher
+    assert "--server-san host.containers.internal" in launcher
+    assert "--enable-mtls-auth true" in launcher
+    assert "--tls-client-ca" in launcher
+    assert "--from-gcloud-adc" in launcher
+    assert '"$STATE/bin/openshell"' in launcher
+    assert '"$OPENSHELL_REAL_BIN" "$@" --from-gcloud-adc' in launcher
+    assert 'ROOT="${STRAT_CREATOR_ROOT:-${CI_PROJECT_DIR:-$PWD}}"' in launcher
+    assert 'grpc_endpoint = "https://host.containers.internal:17670"' in launcher
+    assert "guest_tls_cert" in launcher
+    assert "application_default_credentials.json" in launcher
+    assert (REPO / ".fullsend/profiles/fullsend-vertex-ai.yaml").is_file()
+    assert "profiles/fullsend-vertex-ai.yaml" in harness
+    assert "src: ${GOOGLE_APPLICATION_CREDENTIALS}" in harness
+    assert "dest: /tmp/.gcp-credentials.json" in harness
+    assert "GOOGLE_APPLICATION_CREDENTIALS: /tmp/.gcp-credentials.json" in harness
+    assert "src: /etc/gitlab-runner/certs/ca.crt" in harness
+    assert "dest: /tmp/gitlab-ca.crt" in harness
+    ca_helper = (CI_DIR / "ca-bundle.sh").read_text()
+    assert 'base_bundle="${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}"' in ca_helper
+    assert 'cat "$base_bundle" "$local_ca" >"$destination"' in ca_helper
+    assert 'source "$CI_SCRIPTS/ca-bundle.sh"' in claude_wrapper
+    assert 'fullsend_prepare_ca_bundle "$TMP_DIR/ca-bundle.pem"' in claude_wrapper
+    assert "disable_tls" not in launcher
+    assert "allow_unauthenticated_users" not in launcher
+    assert "openshell-community/sandboxes/base:latest" not in launcher
+    assert "podman --url \"$PODMAN_URL\" build" not in launcher
+    assert not (REPO / ".fullsend/images/ci.Containerfile").exists()
+    assert not (REPO / ".fullsend/images/sandbox.Containerfile").exists()
+
+
+def test_fullsend_build_artifact_is_pinned_and_verified():
+    builder = (CI_DIR / "build-fullsend.sh").read_text()
+    launcher = (CI_DIR / "with-openshell.sh").read_text()
+
+    assert "FEATURE_SHA=8f628aec6d113181914e2a2307fce17488e2c4b4" in builder
+    assert "git -C \"$SOURCE_DIR\" rev-parse HEAD" in builder
+    assert "fullsend-source-sha" in builder
+    assert "fullsend.sha256" in builder
+    assert "fullsend-version.txt" in builder
+    assert "fullsend-source-sha" in launcher
+
+
 def test_shell_helpers_parse():
-    for script in [ENTRYPOINT, CI_DIR / "run-claude.sh", CI_DIR / "with-openshell.sh", CI_DIR / "pipeline-post.sh"]:
+    for script in [
+        ENTRYPOINT,
+        CI_DIR / "build-fullsend.sh",
+        CI_DIR / "run-claude.sh",
+        CI_DIR / "with-openshell.sh",
+        CI_DIR / "pipeline-post.sh",
+    ]:
         subprocess.run(["bash", "-n", str(script)], check=True)

@@ -6,7 +6,7 @@ entrypoint:
 
 role: triage
 description: Create, refine, and review one approved RFE through strat-creator.
-image: localhost/strat-creator-sandbox:m4
+image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:259605fea321353552fdefd3a6a55e8b5c260998dfc5a622ed143e41a429995a
 policy: policies/strategy.yaml
 model: opus
 effort: high
@@ -14,9 +14,15 @@ timeout_minutes: 60
 sandbox_timeout_seconds: 300
 providers:
   - vertex-ai
+host_files:
+  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
+    dest: /tmp/.gcp-credentials.json
+  - src: /etc/gitlab-runner/certs/ca.crt
+    dest: /tmp/gitlab-ca.crt
 openshell:
   profiles:
     - profiles/strat-creator-services.yaml
+    - profiles/fullsend-vertex-ai.yaml
 env:
   sandbox:
     RFE_KEY: "${RFE_KEY}"
@@ -29,5 +35,6 @@ env:
     CLAUDE_CODE_USE_VERTEX: "1"
     ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID}"
     CLOUD_ML_REGION: "global"
+    GOOGLE_APPLICATION_CREDENTIALS: /tmp/.gcp-credentials.json
     ORG_PULSE_URL: "${ORG_PULSE_URL}"
     ORG_PULSE_API_TOKEN: "${ORG_PULSE_API_TOKEN}"

@@ -17,9 +17,15 @@ continues to cover these helpers.
 | `clone-data-repo.sh` | `ci-scripts/clone-data-repo.sh` | Copied/adapted: full URL, process-scoped authentication, and failure on stale destination. |
 | `run-claude.sh` | `ci-scripts/run-claude.sh` | Rewritten around `fullsend-claude`; keeps the stream parser and validates early-termination statuses. |
 | `strategy-entrypoint.sh` | `.gitlab-ci.yml` `single-rfe` job | New sequential entrypoint; preserves lock/create/refine/push/review/post/unlock order. |
-| `with-openshell.sh` | Breadboard M2 smoke at `var/demos/fullsend-entrypoint-poc/openshell-smoke/openshell-smoke.sh` | Adapted as an isolated gateway/command wrapper; pins M2 versions and cleans only job-local Podman storage. |
+| `with-openshell.sh` | Breadboard M2 smoke at `var/demos/fullsend-entrypoint-poc/openshell-smoke/openshell-smoke.sh`; rfe-autofixer `.gitlab-ci.yml` job `autofix-rfe-stage-dry-fullsend` at `28bccc89fd06c118a8194d3f7464dcc4d2e39341` | Adapted to OpenShell `0.0.112-rhaiv.0`, the reference supervisor, and pinned Fullsend sandbox; uses generated mTLS certificates, readiness checks, per-job storage/network, and scoped cleanup. |
+| `profiles/fullsend-vertex-ai.yaml` | `jctanner/fullsend` feature commit `8f628aec6d113181914e2a2307fce17488e2c4b4`, embedded scaffold profile; extended for OpenShell 0.0.112 provider-v2 refresh metadata | Declares the Vertex ADC refresh credential so OpenShell can keep refresh material gateway-side and inject only short-lived access tokens into the sandbox. The harness lists this reserved profile so it takes precedence over Fullsend's older embedded copy; a scoped CLI shim adds `--from-gcloud-adc` to Fullsend's provider-create call. |
+| `harness/strategy.yaml` `host_files` | rfe-autofixer's imported rfe-creator harness at `fae245e778384a0fc823c1df6a71bd2b38489882` | Copies the GitLab file variable named by `GOOGLE_APPLICATION_CREDENTIALS` to `/tmp/.gcp-credentials.json` in the sandbox. Claude Code Vertex auth requires Google ADC; this follows the reference path. The M4.1 smoke credential is `authorized_user` ADC with a cloud-platform refresh token; M6 needs a dedicated Vertex-only service account instead. |
+| `harness/strategy.yaml` CA `host_files` and `ca-bundle.sh` | Existing GitLab runner mount `/etc/gitlab-runner/certs/ca.crt` | Copies the runner CA into the sandbox and appends it to the existing OpenShell trust bundle for Claude, Python, curl, and Git clients. Keeping OpenShell's CA in the combined bundle is required for Vertex traffic through the gateway. |
+| `build-fullsend.sh` | `jctanner/fullsend` commit `8f628aec6d113181914e2a2307fce17488e2c4b4` | Separate Go build step; verifies the source SHA and emits the binary, source revision, version, and checksum as a CI artifact. |
 
 The source checkout was not modified. `setup-claude-ci.sh` was not copied:
 its root-only UBI9 package/user setup and service-account key file are replaced
-by the Containerfiles and Fullsend's Vertex provider. Dashboard triggering
-remains a CI responsibility for M6.
+by rfe-autofixer's CI/sandbox images and Fullsend's Vertex provider. The
+reference CI image lacks `jsonschema`, but the selected strategy helpers do not
+import it; its existing PyYAML satisfies the scripts' YAML dependency.
+Dashboard triggering remains a CI responsibility for M6.

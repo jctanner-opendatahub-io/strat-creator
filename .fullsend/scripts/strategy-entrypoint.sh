@@ -9,6 +9,9 @@ fi
 
 ROOT="${STRAT_CREATOR_ROOT:-$PWD}"
 CI_SCRIPTS="$ROOT/.fullsend/scripts/ci"
+source "$CI_SCRIPTS/ca-bundle.sh"
+CA_BUNDLE="${TMPDIR:-/tmp}/strat-ca-${CI_JOB_ID:-$$}.pem"
+fullsend_prepare_ca_bundle "$CA_BUNDLE"
 ARTIFACTS="$ROOT/artifacts"
 LOCKED_FILE="$ARTIFACTS/locked-rfe-ids.txt"
 OUTPUT_DIR="${FULLSEND_OUTPUT_DIR:-/sandbox/workspace/output}"
@@ -83,6 +86,7 @@ cleanup() {
   fi
 
   rm -f "$LOCKED_FILE"
+  rm -f "$CA_BUNDLE"
   exit "$rc"
 }
 trap cleanup EXIT

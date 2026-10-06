@@ -8,24 +8,27 @@ if [[ $# -lt 2 || $1 != -- ]]; then
 fi
 shift
 
-ROOT="${CI_PROJECT_DIR:-$PWD}"
+ROOT="${STRAT_CREATOR_ROOT:-${CI_PROJECT_DIR:-$PWD}}"
 JOB_ID="${CI_JOB_ID:-}"
 if [[ -z "$JOB_ID" || ! "$JOB_ID" =~ ^[[:alnum:]_-]+$ ]]; then
   echo "ERROR: CI_JOB_ID must uniquely identify this job" >&2
   exit 2
 fi
 
-VERSION=0.0.116
+VERSION=0.0.112-rhaiv.0
+FULLSEND_FEATURE_SHA=8f628aec6d113181914e2a2307fce17488e2c4b4
 SOCKET=/run/podman/podman.sock
 NAME="strat-$JOB_ID"
 NETWORK="openshell-strat-$JOB_ID"
 STATE="$ROOT/.fullsend-ci/$JOB_ID"
 ARTIFACTS="${FULLSEND_CI_ARTIFACTS_DIR:-$ROOT/fullsend-ci-artifacts}"
-SUPERVISOR_TAG="ghcr.io/nvidia/openshell/supervisor:$VERSION"
-SANDBOX_TAG="localhost/strat-creator-sandbox:m4"
+SUPERVISOR_TAG="quay.io/opendatahub/odh-openshell-supervisor:v$VERSION"
+SANDBOX_IMAGE="ghcr.io/fullsend-ai/fullsend-sandbox@sha256:259605fea321353552fdefd3a6a55e8b5c260998dfc5a622ed143e41a429995a"
 PODMAN_URL="unix://$SOCKET"
 PODMAN_PID=""
 GATEWAY_PID=""
+FULLSEND_BUILD_DIR="${FULLSEND_BUILD_DIR:-$ROOT/fullsend-build}"
+FULLSEND_BINARY="${FULLSEND_BINARY:-$FULLSEND_BUILD_DIR/fullsend}"
 mkdir -p "$STATE" "$ARTIFACTS" /run/podman /var/lib/containers/storage /run/containers/storage
 
 cleanup() {
@@ -73,13 +76,29 @@ trap 'exit 143' TERM
 for tool in podman openshell openshell-gateway curl openssl; do
   command -v "$tool" >/dev/null || { echo "ERROR: required CI image tool missing: $tool" >&2; exit 127; }
 done
+if [[ ! -x "$FULLSEND_BINARY" ]]; then
+  echo "ERROR: Fullsend feature binary is missing or not executable: $FULLSEND_BINARY" >&2
+  exit 1
+fi
+if [[ ! -f "$FULLSEND_BUILD_DIR/fullsend-source-sha" ]] || \
+   [[ "$(<"$FULLSEND_BUILD_DIR/fullsend-source-sha")" != "$FULLSEND_FEATURE_SHA" ]]; then
+  echo "ERROR: Fullsend binary source revision does not match $FULLSEND_FEATURE_SHA" >&2
+  exit 1
+fi
+mkdir -p "$STATE/bin"
+install -m 0755 "$FULLSEND_BINARY" "$STATE/bin/fullsend"
+export PATH="$STATE/bin:$PATH"
+"$STATE/bin/fullsend" -v | tee "$ARTIFACTS/fullsend-version.txt"
+sha256sum "$STATE/bin/fullsend" | tee "$ARTIFACTS/fullsend-binary.sha256"
 if [[ -S "$SOCKET" ]]; then
   echo "ERROR: refusing to reuse an existing Podman socket: $SOCKET" >&2
   exit 1
 fi
 openshell --version | tee "$ARTIFACTS/openshell-version.txt"
-if ! openshell --version | grep -Fq "$VERSION"; then
-  echo "ERROR: expected OpenShell $VERSION" >&2
+openshell-gateway --version | tee "$ARTIFACTS/openshell-gateway-version.txt"
+if ! openshell --version | grep -Fq "$VERSION" || \
+   ! openshell-gateway --version | grep -Fq "$VERSION"; then
+  echo "ERROR: expected OpenShell CLI and gateway $VERSION" >&2
   exit 1
 fi
 
@@ -103,51 +122,51 @@ done
 podman --url "$PODMAN_URL" info >/dev/null || { echo "Podman API did not become ready" >&2; exit 1; }
 
 podman --url "$PODMAN_URL" pull "$SUPERVISOR_TAG"
-podman --url "$PODMAN_URL" pull ghcr.io/nvidia/openshell-community/sandboxes/base:latest
-SUPERVISOR_IMAGE="$(podman --url "$PODMAN_URL" image inspect --format '{{index .RepoDigests 0}}' "$SUPERVISOR_TAG")"
-BASE_IMAGE="$(podman --url "$PODMAN_URL" image inspect --format '{{index .RepoDigests 0}}' ghcr.io/nvidia/openshell-community/sandboxes/base:latest)"
-podman --url "$PODMAN_URL" build --tag "$SANDBOX_TAG" --file "$ROOT/.fullsend/images/sandbox.Containerfile" "$ROOT/.fullsend/images"
+podman --url "$PODMAN_URL" pull "$SANDBOX_IMAGE"
+SUPERVISOR_DIGEST="$(podman --url "$PODMAN_URL" image inspect --format '{{.Digest}}' "$SUPERVISOR_TAG")"
+SANDBOX_DIGEST="$(podman --url "$PODMAN_URL" image inspect --format '{{.Digest}}' "$SANDBOX_IMAGE")"
+printf 'ci_image=quay.io/aipcc/agentic-ci/openshell:0.3.46\nsupervisor=%s@%s\nsandbox=%s@%s\n' \
+  "${SUPERVISOR_TAG%@*}" "$SUPERVISOR_DIGEST" \
+  "${SANDBOX_IMAGE%@*}" "$SANDBOX_DIGEST" | tee "$ARTIFACTS/image-pins.txt"
 
-mkdir -p "$STATE/jwt"
-umask 077
-openssl genpkey -algorithm Ed25519 -out "$STATE/jwt/signing.pem" >/dev/null 2>&1
-openssl pkey -in "$STATE/jwt/signing.pem" -pubout -out "$STATE/jwt/public.pem" >/dev/null 2>&1
-openssl rand -hex 16 >"$STATE/jwt/kid"
-openshell-gateway generate-certs --output-dir "$STATE/pki" --server-san host.containers.internal >"$ARTIFACTS/certgen.log" 2>&1
+export XDG_CONFIG_HOME="$STATE/config" XDG_STATE_HOME="$STATE/state" XDG_DATA_HOME="$STATE/data"
+mkdir -p "$XDG_CONFIG_HOME/openshell" "$XDG_STATE_HOME/openshell" "$XDG_DATA_HOME"
+openshell-gateway generate-certs \
+  --output-dir "$XDG_STATE_HOME/openshell/tls" \
+  --server-san 127.0.0.1 \
+  --server-san localhost \
+  --server-san host.containers.internal >"$ARTIFACTS/certgen.log" 2>&1
 
 cat >"$STATE/gateway.toml" <<EOF
 [openshell]
 version = 1
 [openshell.gateway]
-name = "$NAME"
 bind_address = "0.0.0.0:17670"
-health_bind_address = "0.0.0.0:17671"
 compute_drivers = ["podman"]
-disable_tls = true
-[openshell.gateway.auth]
-allow_unauthenticated_users = true
-[openshell.gateway.gateway_jwt]
-signing_key_path = "$STATE/jwt/signing.pem"
-public_key_path = "$STATE/jwt/public.pem"
-kid_path = "$STATE/jwt/kid"
-gateway_id = "$NAME"
-ttl_secs = 0
 [openshell.drivers.podman]
 socket_path = "$SOCKET"
-default_image = "$BASE_IMAGE"
-image_pull_policy = "missing"
+supervisor_image = "$SUPERVISOR_TAG"
 network_name = "$NETWORK"
-grpc_endpoint = "http://host.containers.internal:17670"
-supervisor_image = "$SUPERVISOR_IMAGE"
-guest_tls_ca = "$STATE/pki/ca.crt"
-guest_tls_cert = "$STATE/pki/client/tls.crt"
-guest_tls_key = "$STATE/pki/client/tls.key"
+grpc_endpoint = "https://host.containers.internal:17670"
+default_image = "$SANDBOX_IMAGE"
+image_pull_policy = "missing"
+guest_tls_ca = "$XDG_STATE_HOME/openshell/tls/ca.crt"
+guest_tls_cert = "$XDG_STATE_HOME/openshell/tls/client/tls.crt"
+guest_tls_key = "$XDG_STATE_HOME/openshell/tls/client/tls.key"
 EOF
 
-export XDG_CONFIG_HOME="$STATE/config" XDG_STATE_HOME="$STATE/state" XDG_DATA_HOME="$STATE/data"
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_DATA_HOME"
 env -u KUBERNETES_SERVICE_HOST -u KUBERNETES_SERVICE_PORT -u KUBERNETES_PORT \
-  openshell-gateway --config "$STATE/gateway.toml" >"$STATE/gateway.log" 2>&1 &
+  openshell-gateway \
+    --config "$STATE/gateway.toml" \
+    --bind-address 0.0.0.0 \
+    --health-port 17671 \
+    --tls-cert "$XDG_STATE_HOME/openshell/tls/server/tls.crt" \
+    --tls-key "$XDG_STATE_HOME/openshell/tls/server/tls.key" \
+    --tls-client-ca "$XDG_STATE_HOME/openshell/tls/ca.crt" \
+    --enable-mtls-auth true \
+    --db-url "sqlite:$STATE/openshell.db?mode=rwc" \
+    --log-level info \
+    --drivers podman >"$STATE/gateway.log" 2>&1 &
 GATEWAY_PID=$!
 for ((attempt = 0; attempt < 90; attempt++)); do
   curl -fsS http://127.0.0.1:17671/healthz >/dev/null 2>&1 && break
@@ -155,8 +174,28 @@ for ((attempt = 0; attempt < 90; attempt++)); do
   sleep 2
 done
 curl -fsS http://127.0.0.1:17671/healthz >/dev/null || { echo "OpenShell gateway health check failed" >&2; exit 1; }
-openshell gateway add "http://127.0.0.1:17670" --local --name "$NAME"
+openshell gateway add "https://127.0.0.1:17670" --local --name "$NAME"
 openshell gateway select "$NAME"
+openshell settings set --global --key providers_v2_enabled --value true --yes
+
+# OpenShell 0.0.112 requires providers to declare their credential source.
+# Fullsend's run path creates a provider without one, so preconfigure the
+# Vertex profile from job-local ADC when this harness ships that profile.
+VERTEX_PROFILE="$ROOT/.fullsend/profiles/fullsend-vertex-ai.yaml"
+if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" && -r "$GOOGLE_APPLICATION_CREDENTIALS" && -f "$VERTEX_PROFILE" ]]; then
+  mkdir -p "$XDG_CONFIG_HOME/gcloud"
+  install -m 0600 "$GOOGLE_APPLICATION_CREDENTIALS" \
+    "$XDG_CONFIG_HOME/gcloud/application_default_credentials.json"
+  export OPENSHELL_REAL_BIN="$(command -v openshell)"
+  cat >"$STATE/bin/openshell" <<'SHIM'
+#!/usr/bin/env bash
+if [[ "${1:-}" == provider && "${2:-}" == create && " $* " != *" --from-gcloud-adc "* && " $* " != *" --from-existing "* && " $* " != *" --runtime-credentials "* && " $* " != *" --from-oidc-token "* && " $* " != *" --credential "* ]]; then
+  exec "$OPENSHELL_REAL_BIN" "$@" --from-gcloud-adc
+fi
+exec "$OPENSHELL_REAL_BIN" "$@"
+SHIM
+  chmod 0755 "$STATE/bin/openshell"
+fi
 
 export FULLSEND_OPENSHELL_GATEWAY_NAME="$NAME"
 export FULLSEND_OPENSHELL_NETWORK_NAME="$NETWORK"

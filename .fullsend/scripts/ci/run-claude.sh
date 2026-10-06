@@ -20,6 +20,8 @@ CLAUDE_PID=""
 STREAM_PID=""
 mkdir -p "$ARTIFACTS"
 mkfifo "$FIFO"
+source "$CI_SCRIPTS/ca-bundle.sh"
+fullsend_prepare_ca_bundle "$TMP_DIR/ca-bundle.pem"
 
 cleanup() {
   local rc=$?
