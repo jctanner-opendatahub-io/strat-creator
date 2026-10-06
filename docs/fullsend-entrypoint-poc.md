@@ -78,10 +78,32 @@ Configure these in local GitLab project settings, never in this repository:
 | `ORG_PULSE_API_TOKEN` | Optional Org Pulse token; set blank to skip the non-blocking upload |
 
 The local Jira, GitLab, Org Pulse, and Vertex endpoints are runtime inputs. The
-committed OpenShell service profile scopes sandbox traffic to the local service
-names and the public GitHub hosts used by architecture-context retrieval.
-M6 must verify DNS, CA trust, and egress from each nested network layer before
-running a credential-bearing job.
+applied `.fullsend/policies/strategy.yaml` scopes sandbox traffic to the local
+service names and the public GitHub hosts used by architecture-context retrieval.
+Permission-only service rules belong in the base policy: importing a provider
+profile without attaching that provider does not activate its permissions.
+The executable patterns include versioned Python 3 interpreters, which the
+reference sandbox launches through its virtual environment.
+
+Jira uses `tls: skip` in OpenShell: this means an opaque CONNECT tunnel, not
+skipping TLS verification in the client. The strategy Python client verifies
+Jira’s certificate and hostname using the runner CA appended to the sandbox
+trust bundle. OpenShell still enforces the endpoint, port, and executable
+policy; it does not inspect Jira HTTP methods or inject credentials into this
+tunnel. Jira credentials are passed to the existing client through harness
+environment variables. Public GitHub endpoints retain enforced read-only
+HTTP inspection. GitLab and Org Pulse keep their existing inspection rules
+and still require M6 validation.
+
+The restricted child uses OpenShell’s HTTP CONNECT proxy. Destination DNS
+resolution happens upstream of the child namespace; direct `getaddrinfo`
+failure does not establish an HTTP connectivity failure. M6 must recheck
+trusted HTTPS and identity after M5 resets Jira, then verify the other service
+endpoints before running the strategy. The local Jira emulator currently uses
+permissive authentication: `/myself` returns the supplied Basic identity but
+does not validate its password. That response proves identity propagation,
+not credential validity. Its `serverInfo` reports the synthetic Cloud URL
+`https://jira-emulator.atlassian.net` rather than the transport base URL.
 
 ## Fullsend versions and hooks
 

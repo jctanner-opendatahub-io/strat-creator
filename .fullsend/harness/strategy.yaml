@@ -21,7 +21,6 @@ host_files:
     dest: /tmp/gitlab-ca.crt
 openshell:
   profiles:
-    - profiles/strat-creator-services.yaml
     - profiles/fullsend-vertex-ai.yaml
 env:
   sandbox:

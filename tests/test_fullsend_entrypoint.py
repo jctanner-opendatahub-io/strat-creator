@@ -1,7 +1,10 @@
 """Tests for the script-led Fullsend single-RFE flow."""
+import fnmatch
 import os
 import subprocess
 from pathlib import Path
+
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 ENTRYPOINT = REPO / ".fullsend/scripts/strategy-entrypoint.sh"
@@ -198,3 +201,25 @@ def test_shell_helpers_parse():
         CI_DIR / "pipeline-post.sh",
     ]:
         subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_service_permissions_are_in_applied_policy():
+    harness = yaml.safe_load((REPO / ".fullsend/harness/strategy.yaml").read_text())
+    policy = yaml.safe_load((REPO / ".fullsend" / harness["policy"]).read_text())
+    services = policy["network_policies"]["local_services"]
+    endpoints = {entry["host"]: entry for entry in services["endpoints"]}
+    assert set(endpoints) == {
+        "jira.local", "gitlab.local", "orgpulse.local", "github.com",
+        "api.github.com", "raw.githubusercontent.com", "codeload.github.com",
+    }
+    assert all(entry["port"] == 443 for entry in endpoints.values())
+    assert endpoints["jira.local"]["tls"] == "skip"
+    assert "protocol" not in endpoints["jira.local"]
+    assert all(entry["enforcement"] == "enforce" and "tls" not in entry
+               for host, entry in endpoints.items() if host != "jira.local")
+    assert endpoints["api.github.com"]["access"] == "read-only"
+    binaries = [entry["path"] for entry in services["binaries"]]
+    assert any(fnmatch.fnmatch(
+        "/sandbox/.uv/python/cpython-3.14.3-linux-x86_64-gnu/bin/python3.14", pattern,
+    ) for pattern in binaries)
+    assert "profiles/strat-creator-services.yaml" not in harness["openshell"]["profiles"]
