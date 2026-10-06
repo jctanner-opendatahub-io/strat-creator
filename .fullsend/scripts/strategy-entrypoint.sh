@@ -2,10 +2,16 @@
 # Script-led equivalent of strat-pipeline's single-rfe job.
 set -Eeuo pipefail
 
-if [[ $# -ne 1 || ! $1 =~ ^RHAIRFE-[0-9]+$ ]]; then
-  echo "usage: strategy-entrypoint.sh RHAIRFE-NNNN" >&2
+MODE=single-rfe
+if [[ ${1:-} == batch-discover && $# -eq 1 ]]; then
+  MODE=batch-discover
+elif [[ $# -ne 1 || ! $1 =~ ^RHAIRFE-[0-9]+$ ]]; then
+  echo "usage: strategy-entrypoint.sh RHAIRFE-NNNN | batch-discover" >&2
   exit 2
 fi
+for value in "${BATCH_SIZE:-}" "${BATCH_OFFSET:-}"; do
+  [[ -z "$value" || "$value" =~ ^[0-9]+$ ]] || { echo "Invalid batch limit" >&2; exit 2; }
+done
 
 ROOT="${STRAT_CREATOR_ROOT:-$PWD}"
 CI_SCRIPTS="$ROOT/.fullsend/scripts/ci"
@@ -15,7 +21,8 @@ fullsend_prepare_ca_bundle "$CA_BUNDLE"
 ARTIFACTS="$ROOT/artifacts"
 LOCKED_FILE="$ARTIFACTS/locked-rfe-ids.txt"
 OUTPUT_DIR="${FULLSEND_OUTPUT_DIR:-/sandbox/workspace/output}"
-RFE_KEY="$1"
+RFE_KEY="${1}"
+CANDIDATES=("$RFE_KEY")
 COLLECTOR_PID=""
 LOCKED_KEYS=""
 PREVIOUS_RUN=""
@@ -39,6 +46,12 @@ elif [[ -e "$ARTIFACTS" ]]; then
 else
   "$CI_SCRIPTS/clone-data-repo.sh" "${RESULTS_REPO_URL:?RESULTS_REPO_URL is required}" "$ARTIFACTS"
 fi
+# Historical runs remain under RHAISTRAT/. Remove only working output from
+# earlier jobs so this invocation never refines, reviews or republishes it.
+for dir in strat-tasks strat-reviews strat-originals reports; do
+  rm -rf -- "$ARTIFACTS/$dir"
+done
+rm -f "$ARTIFACTS/pipeline-data.json" "$ARTIFACTS/strat-tickets.md" "$ARTIFACTS/strat-skipped.md" "$ARTIFACTS/claude-otel.jsonl" "$ARTIFACTS/claude-otel-rate.json"
 mkdir -p "$ARTIFACTS/.git/info"
 printf '%s\n' 'locked-rfe-ids.txt' >> "$ARTIFACTS/.git/info/exclude"
 git -C "$ARTIFACTS" rm --cached --ignore-unmatch -q locked-rfe-ids.txt 2>/dev/null || true
@@ -60,6 +73,7 @@ cleanup() {
   fi
 
   if [[ -s "$LOCKED_FILE" ]]; then
+    cp "$LOCKED_FILE" "$OUTPUT_DIR/owned-rfe-ids.txt" || rc=1
     LOCKED_KEYS="$(tr '\n' ' ' < "$LOCKED_FILE" | xargs)"
     if [[ -n "$LOCKED_KEYS" ]]; then
       python3 "$ROOT/scripts/lock_issues.py" unlock $LOCKED_KEYS || {
@@ -83,6 +97,13 @@ cleanup() {
   if [[ -d "$ARTIFACTS/reports" ]]; then
     mkdir -p "$OUTPUT_DIR/reports"
     cp -a "$ARTIFACTS/reports/." "$OUTPUT_DIR/reports/"
+  fi
+
+  if [[ "$rc" -ne 0 ]]; then
+    mkdir -p "$OUTPUT_DIR/partial-work"
+    for dir in strat-tasks strat-reviews strat-originals; do
+      [[ ! -d "$ARTIFACTS/$dir" ]] || cp -a "$ARTIFACTS/$dir" "$OUTPUT_DIR/partial-work/" || rc=1
+    done
   fi
 
   rm -f "$LOCKED_FILE"
@@ -113,27 +134,56 @@ done
 kill -0 "$COLLECTOR_PID" 2>/dev/null || { echo "OTEL collector did not start" >&2; exit 1; }
 
 rm -f "$LOCKED_FILE"
-LOCKED_KEYS="$(python3 "$ROOT/scripts/lock_issues.py" lock --locked-keys-file "$LOCKED_FILE" "$RFE_KEY")"
-if [[ -z "$LOCKED_KEYS" ]]; then
-  echo "No work: $RFE_KEY is already locked or blocked by its Jira labels."
+if [[ "$MODE" == batch-discover ]]; then
+  args=(--jql-default)
+  [[ -z "${BATCH_SIZE:-}" ]] || args+=(--batch-size "$BATCH_SIZE")
+  [[ -z "${BATCH_OFFSET:-}" ]] || args+=(--batch-offset "$BATCH_OFFSET")
+  # Avoid process substitution here: discovery failures must propagate.
+  discovered="$(python3 "$ROOT/scripts/list-rfe-ids.py" "${args[@]}")"
+  CANDIDATES=()
+  while IFS= read -r key; do
+    [[ -z "$key" ]] && continue
+    [[ "$key" =~ ^RHAIRFE-[0-9]+$ ]] || { echo "Invalid discovered key: $key" >&2; exit 1; }
+    CANDIDATES+=("$key")
+  done <<<"$discovered"
+  echo "Discovered RFE_IDS: ${CANDIDATES[*]}"
+  # Optional acceptance safety bound; discovery/filtering still uses native JQL.
+  if [[ -n "${BATCH_EXPECTED_KEYS:-}" && "${CANDIDATES[*]}" != "$BATCH_EXPECTED_KEYS" ]]; then
+    echo "ERROR: discovered candidates differ from expected bound" >&2; exit 1
+  fi
+fi
+if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+  echo "No work: discovery returned no eligible RFEs."
   exit 0
 fi
-if [[ "$LOCKED_KEYS" != "$RFE_KEY" ]]; then
-  echo "ERROR: lock helper returned an unexpected key set: $LOCKED_KEYS" >&2
-  exit 1
+LOCKED_KEYS="$(python3 "$ROOT/scripts/lock_issues.py" lock --locked-keys-file "$LOCKED_FILE" "${CANDIDATES[@]}")"
+if [[ -z "$LOCKED_KEYS" ]]; then
+  echo "No work: candidates are already locked or blocked by Jira labels."
+  exit 0
 fi
-
-"$CI_SCRIPTS/run-claude.sh" "/strategy-create $RFE_KEY"
+# Check the recorded acquired subset, not all discovery candidates.
+read -r -a owned <<<"$LOCKED_KEYS"
+recorded="$(tr '\n' ' ' < "$LOCKED_FILE" | xargs)"
+[[ "$recorded" == "${owned[*]}" ]] || { echo "ERROR: lock record mismatch" >&2; exit 1; }
+for key in "${owned[@]}"; do
+  [[ " ${CANDIDATES[*]} " == *" $key "* ]] || { echo "ERROR: unexpected acquired key" >&2; exit 1; }
+done
+export FULLSEND_OWNED_RFE_KEYS="${owned[*]}"
+"$CI_SCRIPTS/run-claude.sh" "/strategy-create ${owned[*]}"
 
 mapfile -t strategy_files < <(find "$ARTIFACTS/strat-tasks" -maxdepth 1 -type f -name 'RHAISTRAT-*.md' -print 2>/dev/null | sort)
-if [[ ${#strategy_files[@]} -ne 1 ]]; then
-  echo "ERROR: expected one created strategy for $RFE_KEY; found ${#strategy_files[@]}" >&2
+if [[ ${#strategy_files[@]} -ne ${#owned[@]} ]]; then
+  echo "ERROR: expected ${#owned[@]} created strategies; found ${#strategy_files[@]}" >&2
   exit 1
 fi
-STRAT_KEY="$(basename "${strategy_files[0]}" .md)"
-
-"$CI_SCRIPTS/run-claude.sh" "/strategy-refine $STRAT_KEY"
+for file in "${strategy_files[@]}"; do
+  "$CI_SCRIPTS/run-claude.sh" "/strategy-refine $(basename "$file" .md)"
+done
 python3 "$ROOT/scripts/push_refined_strategies.py" --artifacts-dir "$ARTIFACTS/strat-tasks"
-"$CI_SCRIPTS/run-claude.sh" "/strategy-review $STRAT_KEY"
-"$CI_SCRIPTS/pipeline-post.sh" single-rfe
+for file in "${strategy_files[@]}"; do
+  "$CI_SCRIPTS/run-claude.sh" "/strategy-review $(basename "$file" .md)"
+done
+label=single-rfe
+[[ "$MODE" != batch-discover ]] || label=pipeline-settings
+"$CI_SCRIPTS/pipeline-post.sh" "$label"
 python3 "$CI_SCRIPTS/otel-summary.py" "$OTEL_LOG_FILE"

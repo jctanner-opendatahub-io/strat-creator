@@ -45,8 +45,10 @@ trap 'exit 143' TERM
 prompt="$1"
 # The entrypoint acquired this lock and recorded only keys it owns. Tell the
 # child why the processing label is present; keep normal gate checks intact.
-if [[ -n "${RFE_KEY:-}" && -r "$ARTIFACTS/locked-rfe-ids.txt" ]] &&    [[ "$(<"$ARTIFACTS/locked-rfe-ids.txt")" == "$RFE_KEY" ]]; then
-  printf -v prompt '%s\n\n%s' "$1"     "Authorized automated CI execution: this entrypoint owns the strat-creator-processing lock for $RFE_KEY, recorded in artifacts/locked-rfe-ids.txt. That label is this run's lock, not another run's lock. Execute the requested strategy skill and its documented Jira clone/update/attachment/label writes without interactive approval; the user authorized this workflow. Preserve all release, quality, processed-strategy, needs-attention, and human-sign-off gates. If a gate blocks work, report the failure and stop. Do not create a duplicate strategy. Complete the skill's documented completion marker."
+owned_keys="${FULLSEND_OWNED_RFE_KEYS:-${RFE_KEY:-}}"
+if [[ -n "$owned_keys" && -r "$ARTIFACTS/locked-rfe-ids.txt" ]] &&
+   [[ "$(tr '\n' ' ' < "$ARTIFACTS/locked-rfe-ids.txt" | xargs)" == "$owned_keys" ]]; then
+  printf -v prompt '%s\n\n%s' "$1" "Authorized automated CI execution: this entrypoint owns the strat-creator-processing lock for $owned_keys, recorded in artifacts/locked-rfe-ids.txt. These labels are this run's locks, not another run's locks. Process only those owned RFEs. Execute the requested strategy skill and its documented Jira clone/update/attachment/label writes without interactive approval; the user authorized this workflow. Preserve all release, quality, processed-strategy, needs-attention, and human-sign-off gates. If a gate blocks work, report the failure and stop. Do not create a duplicate strategy. Complete the skill's documented completion marker."
 fi
 fullsend-claude "$prompt" >"$FIFO" 2>>"$STDERR_LOG" &
 CLAUDE_PID=$!

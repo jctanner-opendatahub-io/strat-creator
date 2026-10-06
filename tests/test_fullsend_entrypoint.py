@@ -13,7 +13,7 @@ ENTRYPOINT = REPO / ".fullsend/scripts/strategy-entrypoint.sh"
 CI_DIR = REPO / ".fullsend/scripts/ci"
 
 
-def _run_flow(tmp_path, *, locked=True, fail_stage=""):
+def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="RHAIRFE-1234 RHAIRFE-1235", acquired="", size="", offset="", stale=False):
     root = tmp_path / "repo"
     ci = root / ".fullsend/scripts/ci"
     (root / "scripts").mkdir(parents=True)
@@ -25,13 +25,19 @@ def _run_flow(tmp_path, *, locked=True, fail_stage=""):
     )
     (ci / "clone-data-repo.sh").chmod(0o755)
     (ci / "ca-bundle.sh").write_text((CI_DIR / "ca-bundle.sh").read_text())
+    if stale:
+        old = root / "artifacts/strat-tasks"
+        old.mkdir(parents=True)
+        (old / "RHAISTRAT-OLD.md").write_text("stale")
+        (root / "artifacts/.git/info").mkdir(parents=True)
     (ci / "run-claude.sh").write_text(
         "#!/bin/sh\n"
         "printf 'claude %s\\n' \"$1\" >> \"$EVENT_LOG\"\n"
-        "if [ \"$1\" = '/strategy-create RHAIRFE-1234' ]; then\n"
+        "case \"$1\" in /strategy-create*)\n"
         "  mkdir -p \"$STRAT_CREATOR_ROOT/artifacts/strat-tasks\"\n"
-        "  printf '%s\\n' strategy > \"$STRAT_CREATOR_ROOT/artifacts/strat-tasks/RHAISTRAT-55.md\"\n"
-        "fi\n"
+        "  n=55; for key in $FULLSEND_OWNED_RFE_KEYS; do\n"
+        "    printf '%s\\n' strategy > \"$STRAT_CREATOR_ROOT/artifacts/strat-tasks/RHAISTRAT-$n.md\"; n=$((n+1)); done ;;\n"
+        "esac\n"
         "if [ \"${FAIL_STAGE:-}\" = \"$1\" ]; then exit 7; fi\n"
     )
     (ci / "pipeline-post.sh").write_text(
@@ -55,13 +61,14 @@ def _run_flow(tmp_path, *, locked=True, fail_stage=""):
         "  */lock_issues.py)\n"
         "    if [ \"$2\" = lock ]; then\n"
         "      printf 'lock %s\\n' \"$*\" >> \"$EVENT_LOG\"\n"
-        "      for arg in \"$@\"; do case \"$arg\" in RHAIRFE-*) key=$arg ;; esac; done\n"
+        "      keys=\"${ACQUIRED:-${MOCK_CANDIDATES}}\"\n"
         "      if [ \"${LOCKED:-1}\" = 1 ]; then\n"
-        "        for arg in \"$@\"; do case \"$arg\" in */locked-rfe-ids.txt) printf '%s\\n' \"$key\" > \"$arg\" ;; esac; done\n"
-        "        printf '%s\\n' \"$key\"\n"
+        "        for arg in \"$@\"; do case \"$arg\" in */locked-rfe-ids.txt) printf '%s\\n' $keys > \"$arg\" ;; esac; done\n"
+        "        printf '%s\\n' \"$keys\"\n"
         "      fi\n"
         "    else printf 'unlock %s\\n' \"$*\" >> \"$EVENT_LOG\"; fi\n"
         "    exit 0 ;;\n"
+        "  */list-rfe-ids.py) printf 'discover %s\\n' \"$*\" >> \"$EVENT_LOG\"; printf '%s\\n' $MOCK_CANDIDATES; exit 0 ;;\n"
         "  */push_refined_strategies.py) printf 'push\\n' >> \"$EVENT_LOG\"; exit 0 ;;\n"
         "  */otel-summary.py) exit 0 ;;\n"
         "esac\n"
@@ -88,9 +95,11 @@ def _run_flow(tmp_path, *, locked=True, fail_stage=""):
         "EVENT_LOG": str(log),
         "LOCKED": "1" if locked else "0",
         "FAIL_STAGE": fail_stage,
+        "MOCK_CANDIDATES": candidates if batch else "RHAIRFE-1234", "ACQUIRED": acquired,
+        "BATCH_SIZE": size, "BATCH_OFFSET": offset,
     })
     result = subprocess.run(
-        ["bash", str(ENTRYPOINT), "RHAIRFE-1234"],
+        ["bash", str(ENTRYPOINT), "batch-discover" if batch else "RHAIRFE-1234"],
         cwd=root,
         env=env,
         text=True,
@@ -137,7 +146,7 @@ def test_child_wrapper_uses_fullsend_and_preserves_completion_guard():
 
     assert 'fullsend-claude "$prompt"' in wrapper
     assert "this entrypoint owns the strat-creator-processing lock" in wrapper
-    assert '"$(<"$ARTIFACTS/locked-rfe-ids.txt")" == "$RFE_KEY"' in wrapper
+    assert '== "$owned_keys"' in wrapper
     assert "\nclaude \"$1\"" not in wrapper
     assert 'stream_rc" -eq 42' in wrapper
     assert 'claude_rc" -eq 143' in wrapper
@@ -287,3 +296,54 @@ def test_service_permissions_are_in_applied_policy():
         "/sandbox/.uv/python/cpython-3.14.3-linux-x86_64-gnu/bin/python3.14", pattern,
     ) for pattern in binaries)
     assert "profiles/strat-creator-services.yaml" not in harness["openshell"]["profiles"]
+
+
+def test_batch_native_order_limits_and_excludes_prior_artifacts(tmp_path):
+    result, events, _ = _run_flow(tmp_path, batch=True, size="2", offset="3", stale=True)
+    assert result.returncode == 0, result.stderr
+    assert "--batch-size 2 --batch-offset 3" in events[0]
+    assert [e for e in events if e.startswith("claude")] == [
+        "claude /strategy-create RHAIRFE-1234 RHAIRFE-1235",
+        "claude /strategy-refine RHAISTRAT-55", "claude /strategy-refine RHAISTRAT-56",
+        "claude /strategy-review RHAISTRAT-55", "claude /strategy-review RHAISTRAT-56"]
+    assert events[-2] == "post pipeline-settings"
+    assert events[-1].endswith("RHAIRFE-1234 RHAIRFE-1235")
+    assert not any("OLD" in e for e in events)
+
+
+def test_batch_partial_locks_process_and_unlock_only_owned_subset(tmp_path):
+    result, events, _ = _run_flow(tmp_path, batch=True, acquired="RHAIRFE-1235")
+    assert result.returncode == 0, result.stderr
+    assert "claude /strategy-create RHAIRFE-1235" in events
+    assert events[-1].endswith("unlock RHAIRFE-1235")
+
+
+def test_batch_empty_discovery_calls_no_models_or_locks(tmp_path):
+    result, events, _ = _run_flow(tmp_path, batch=True, candidates="")
+    assert result.returncode == 0, result.stderr
+    assert len(events) == 1 and events[0].startswith("discover")
+
+
+def test_batch_all_blocked_is_no_work(tmp_path):
+    result, events, _ = _run_flow(tmp_path, batch=True, locked=False)
+    assert result.returncode == 0, result.stderr
+    assert [e.split()[0] for e in events] == ["discover", "lock"]
+
+
+def test_batch_failure_keeps_nonzero_and_unlocks_all_owned_keys(tmp_path):
+    result, events, output = _run_flow(tmp_path, batch=True, fail_stage="/strategy-refine RHAISTRAT-56")
+    assert result.returncode == 7
+    assert events[-1].endswith("unlock RHAIRFE-1234 RHAIRFE-1235")
+    assert (output/"owned-rfe-ids.txt").read_text().split() == ["RHAIRFE-1234", "RHAIRFE-1235"]
+    assert (output/"partial-work/strat-tasks/RHAISTRAT-56.md").exists()
+    assert not any(e.startswith("push") or e.startswith("post") or "/strategy-review" in e for e in events)
+
+
+def test_batch_harness_keeps_model_and_deadline_contract():
+    single=yaml.safe_load((REPO/".fullsend/harness/strategy.yaml").read_text())
+    batch=yaml.safe_load((REPO/".fullsend/harness/batch-discover.yaml").read_text())
+    for key in ("model", "effort", "image", "policy", "host_files", "providers", "openshell"):
+        assert batch[key] == single[key]
+    assert batch["entrypoint"]["command"][-1] == "batch-discover"
+    assert batch["timeout_minutes"] == 295
+    assert batch["sandbox_timeout_seconds"] == 18000

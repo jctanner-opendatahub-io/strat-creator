@@ -3,3 +3,5 @@ runtime: claude
 agents:
   - name: strategy
     source: harness/strategy.yaml
+  - name: batch-discover
+    source: harness/batch-discover.yaml

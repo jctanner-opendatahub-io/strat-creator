@@ -1,6 +1,6 @@
 # Fullsend strategy entrypoint POC
 
-This branch preserves the `single-rfe` path from the strat-pipeline source
+This branch preserves the `single-rfe` and discovery-batch paths from the strat-pipeline source
 checkout at commit `fd36b15c5095c9f20a270b1d69933c578c04d9da`. The target repo
 is the checked-out `feat/fullsend-strategy-entrypoint` branch; CI must not
 clone public `main` over it. The sequence is issue lock, strategy create,
@@ -68,7 +68,7 @@ Configure these in local GitLab project settings, never in this repository:
 | `RFE_KEY` | One approved `RHAIRFE-NNNN` issue for the manual `single-rfe` job |
 | `JIRA_SERVER` | Jira base URL; use the local emulator URL for the POC |
 | `JIRA_USER` | Jira bot username |
-| `JIRA_TOKEN` | Jira bot PAT with required read/write strategy permissions |
+| `JIRA_TOKEN` | Jira bot Basic password with required read/write strategy permissions |
 | `RESULTS_REPO_URL` | HTTPS URL of the strat-pipeline-data project |
 | `RESULTS_PUSH_TOKEN` | GitLab token allowed to push result artifacts and summaries |
 | `RESULTS_GIT_USER` | Username paired with the results token (often `oauth2`) |
@@ -93,8 +93,8 @@ trust bundle. OpenShell still enforces the endpoint, port, and executable
 policy; it does not inspect Jira HTTP methods or inject credentials into this
 tunnel. Jira credentials are passed to the existing client through harness
 environment variables. Public GitHub endpoints retain enforced read-only
-HTTP inspection. GitLab and Org Pulse keep their existing inspection rules
-and still require M6 validation.
+HTTP inspection. GitLab and Org Pulse use the same verified opaque local-service tunnels;
+M6 verified real writes and publication.
 
 The restricted child uses OpenShell’s HTTP CONNECT proxy. Destination DNS
 resolution happens upstream of the child namespace; direct `getaddrinfo`
@@ -126,9 +126,9 @@ at `GOOGLE_APPLICATION_CREDENTIALS` to `/tmp/.gcp-credentials.json` in the
 sandbox and sets that path for Claude Code ADC. The M4.1 smoke used the
 existing `authorized_user` ADC file, which contains a refresh token with
 cloud-platform scope; copying it gives sandbox code the same cloud access as
-that user. Do not use this credential for a real strategy run. M6 needs a
-dedicated service account restricted to Vertex inference, provisioned as a
-protected GitLab file variable and rotated through secret management.
+that user. The user explicitly approved these existing Breadboard credentials for the
+Vertex POC; the dedicated service-account bootstrap is a separate follow-up.
+Keep credentials in masked variables/private files and preserve the refresh path.
 
 Fullsend hooks remain enabled with the M3 default. This branch does not set
 `security.sandbox_hooks.enabled: false`; wait for the separate hooks-switch
@@ -142,9 +142,10 @@ checks and retain M3's documented bypass/restore limitations.
   when the parser returned 42 and the child ended from the expected SIGTERM or
   SIGPIPE. Other non-zero statuses fail the entrypoint. Fullsend owns the
   child runtime and cancellation boundary.
-- The entrypoint runs one RFE rather than four job types. A blocked issue lock
-  exits without invoking skills or publishing an empty run. The script rejects
-  zero or multiple created strategies rather than guessing from a glob.
+- The entrypoint supports single-rfe and batch-discover (native batch-jql).
+  No-work discovery/locks exit without skills or publication. Created strategy
+  count must match the acquired RFEs; prior working outputs are cleared while
+  timestamped historical runs remain untouched.
 - The workspace is the checked-out feature branch. There is no `/tmp` clone,
   root-only token directory, or `CI_PROJECT_DIR` dependency inside the sandbox.
 - Results authentication uses a process-scoped Git HTTP header. Tokens are
@@ -183,3 +184,23 @@ versions before v2.1.251 give the subagent variable precedence directly. See
 [Claude Code subagent model selection](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model).
 Runtime smoke evidence must report the actual parent model, not just the
 requested argument. Historical M6 used 4.8 and is not proof of the new pin.
+
+## Discovery batches
+
+Run the `batch-discover` agent with BATCH_SIZE/BATCH_OFFSET (nonnegative integers;
+blank size uses config/pipeline-settings.yaml). Discovery reuses list-rfe-ids.py
+--jql-default, including processed-strategy exclusion before slicing. Optional
+BATCH_EXPECTED_KEYS must exactly match discovered keys before locking; use it
+to bound acceptance runs. Single-RFE invocation is unchanged.
+
+Inside one sandbox: discover → lock subset → create all owned RFEs → refine
+each new strategy → push refinements → review each → pipeline-settings reports
+and results/Org Pulse publication. Only recorded owned locks are released on
+exit. Empty discovery or no acquired locks succeeds without model calls.
+
+CI batch timeout is five hours; Fullsend timeout is 295 minutes (five minutes reserved for cleanup) and sandbox
+startup/readiness budget is 18000 seconds. These do not enable automatic
+retries. Artifacts and transcripts diagnose partial failures. Before manually
+retrying, inspect linked Jira strategies, per-issue gates and lock records;
+never replay a partly completed batch blindly or reset processed issues.
+The curated-list variant batch-selected and reprocess-strat are deferred.
