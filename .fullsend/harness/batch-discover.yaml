@@ -11,7 +11,7 @@ policy: policies/strategy.yaml
 model: claude-opus-4-6
 effort: high
 timeout_minutes: 295
-sandbox_timeout_seconds: 18000
+sandbox_timeout_seconds: 300
 providers:
   - vertex-ai
 host_files:

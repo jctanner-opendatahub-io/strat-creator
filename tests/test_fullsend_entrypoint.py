@@ -346,4 +346,4 @@ def test_batch_harness_keeps_model_and_deadline_contract():
         assert batch[key] == single[key]
     assert batch["entrypoint"]["command"][-1] == "batch-discover"
     assert batch["timeout_minutes"] == 295
-    assert batch["sandbox_timeout_seconds"] == 18000
+    assert batch["sandbox_timeout_seconds"] == single["sandbox_timeout_seconds"] == 300

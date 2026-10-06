@@ -199,7 +199,7 @@ and results/Org Pulse publication. Only recorded owned locks are released on
 exit. Empty discovery or no acquired locks succeeds without model calls.
 
 CI batch timeout is five hours; Fullsend timeout is 295 minutes (five minutes reserved for cleanup) and sandbox
-startup/readiness budget is 18000 seconds. These do not enable automatic
+startup/readiness budget remains 300 seconds. These do not enable automatic
 retries. Artifacts and transcripts diagnose partial failures. Before manually
 retrying, inspect linked Jira strategies, per-issue gates and lock records;
 never replay a partly completed batch blindly or reset processed issues.
