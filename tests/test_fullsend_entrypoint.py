@@ -133,7 +133,9 @@ def test_refine_failure_unlocks_without_review_or_publish(tmp_path):
 def test_child_wrapper_uses_fullsend_and_preserves_completion_guard():
     wrapper = (CI_DIR / "run-claude.sh").read_text()
 
-    assert "fullsend-claude \"$1\"" in wrapper
+    assert 'fullsend-claude "$prompt"' in wrapper
+    assert "this entrypoint owns the strat-creator-processing lock" in wrapper
+    assert '"$(<"$ARTIFACTS/locked-rfe-ids.txt")" == "$RFE_KEY"' in wrapper
     assert "\nclaude \"$1\"" not in wrapper
     assert 'stream_rc" -eq 42' in wrapper
     assert 'claude_rc" -eq 143' in wrapper
