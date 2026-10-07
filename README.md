@@ -214,3 +214,9 @@ iteration output artifact. The Claude renderer supports completed assistant
 messages and partial event streams without printing a response twice. Tool
 summaries remain compact; transcripts retain complete tool inputs and results.
 The integration caller masks credentials before forwarding live logs.
+
+The Fullsend strategy entrypoint removes the unused `/tmp/strat-assess`
+additional-directory permission from its disposable checkout before starting
+Claude. That directory belongs to local assessment tooling. Other project
+settings and Fullsend security hooks are preserved; the entrypoint does not
+pre-accept Claude workspace trust. Malformed settings fail startup.

@@ -15,6 +15,9 @@ done
 
 ROOT="${STRAT_CREATOR_ROOT:-$PWD}"
 CI_SCRIPTS="$ROOT/.fullsend/scripts/ci"
+# The local assessment directory is unused by strategy CI. Preserve all other
+# settings and Fullsend hooks; do not pre-accept workspace trust.
+python3 "$CI_SCRIPTS/prepare-claude-settings.py" "$ROOT"
 source "$CI_SCRIPTS/ca-bundle.sh"
 CA_BUNDLE="${TMPDIR:-/tmp}/strat-ca-${CI_JOB_ID:-$$}.pem"
 fullsend_prepare_ca_bundle "$CA_BUNDLE"

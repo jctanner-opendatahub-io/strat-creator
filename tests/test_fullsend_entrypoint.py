@@ -25,6 +25,8 @@ def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="
     )
     (ci / "clone-data-repo.sh").chmod(0o755)
     (ci / "ca-bundle.sh").write_text((CI_DIR / "ca-bundle.sh").read_text())
+    (ci / "prepare-claude-settings.py").write_text(
+        (CI_DIR / "prepare-claude-settings.py").read_text())
     if stale:
         old = root / "artifacts/strat-tasks"
         old.mkdir(parents=True)
@@ -56,6 +58,7 @@ def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="
     python.write_text(
         "#!/usr/bin/env bash\n"
         "case \"$1\" in\n"
+        f"  */prepare-claude-settings.py) exec {sys.executable} \"$@\" ;;\n"
         "  */otel-collector.py) exec sleep 600 ;;\n"
         "  -c) exit 0 ;;\n"
         "  */lock_issues.py)\n"
@@ -347,3 +350,39 @@ def test_batch_harness_keeps_model_and_deadline_contract():
     assert batch["entrypoint"]["command"][-1] == "batch-discover"
     assert batch["timeout_minutes"] == 295
     assert batch["sandbox_timeout_seconds"] == single["sandbox_timeout_seconds"] == 300
+
+
+def test_prepare_ci_settings_preserves_other_permissions_and_hooks(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "prepare_ci_settings", CI_DIR / "prepare-claude-settings.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    helper.prepare(tmp_path)  # Missing project settings are valid.
+    path = tmp_path / ".claude/settings.json"
+    path.parent.mkdir()
+    settings = {"permissions": {"allow": ["Edit(artifacts/**)"],
+                 "additionalDirectories": ["/tmp/strat-assess", "/other"]},
+                "hooks": {"PreToolUse": [{"matcher": "Bash"}]}}
+    path.write_text(json.dumps(settings))
+    helper.prepare(tmp_path)
+    settings["permissions"]["additionalDirectories"] = ["/other"]
+    assert json.loads(path.read_text()) == settings
+    before = path.read_bytes()
+    helper.prepare(tmp_path)
+    assert path.read_bytes() == before
+    settings["permissions"]["additionalDirectories"] = ["/tmp/strat-assess"]
+    path.write_text(json.dumps(settings))
+    helper.prepare(tmp_path)
+    del settings["permissions"]["additionalDirectories"]
+    assert json.loads(path.read_text()) == settings
+
+
+def test_prepare_ci_settings_rejects_malformed_json(tmp_path):
+    path = tmp_path / ".claude/settings.json"
+    path.parent.mkdir()
+    path.write_text("invalid json")
+    result = subprocess.run([sys.executable, str(CI_DIR / "prepare-claude-settings.py"),
+                             str(tmp_path)], capture_output=True)
+    assert result.returncode != 0
+    assert path.read_text() == "invalid json"
