@@ -2,6 +2,11 @@
 # Script-led equivalent of strat-pipeline's single-rfe job.
 set -Eeuo pipefail
 
+printf '%s\n' \
+  '###################################################################' \
+  '# STRAT CREATOR ENTRYPOINT SCRIPT' \
+  '###################################################################'
+
 MODE=single-rfe
 if [[ ${1:-} == batch-discover && $# -eq 1 ]]; then
   MODE=batch-discover

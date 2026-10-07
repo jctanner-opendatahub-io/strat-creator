@@ -386,3 +386,14 @@ def test_prepare_ci_settings_rejects_malformed_json(tmp_path):
                              str(tmp_path)], capture_output=True)
     assert result.returncode != 0
     assert path.read_text() == "invalid json"
+
+
+def test_entrypoint_banner_is_first_output_before_argument_validation():
+    result = subprocess.run(["bash", str(ENTRYPOINT)], text=True, capture_output=True)
+    assert result.returncode == 2
+    assert result.stdout.splitlines() == [
+        "#" * 67,
+        "# STRAT CREATOR ENTRYPOINT SCRIPT",
+        "#" * 67,
+    ]
+    assert "usage:" in result.stderr
