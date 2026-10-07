@@ -6,6 +6,7 @@ flowchart TB
     batch["Manual or scheduled batch-discover kickoff<br/>BATCH_SIZE / BATCH_OFFSET<br/>Optional expected-key guard"]
     creator["github.com/jctanner-opendatahub-io/strat-creator<br/>Pinned feature commit<br/>Harness, scripts, skills and policy"]
     fullsendSource["github.com/jctanner/fullsend<br/>Pinned feat/entrypoint-harness commit"]
+    archctx["github.com/opendatahub-io/architecture-context<br/>Public; sparse, blob-filtered clone<br/>Newest rhoai-* version + overlays"]
     vertex["Google Vertex AI<br/>claude-opus-4-6<br/>Parent and subagents pinned"]
 
     subgraph cluster["Breadboard K3s cluster"]
@@ -24,10 +25,10 @@ flowchart TB
             run["fullsend run strategy OR batch-discover<br/>--model claude-opus-4-6<br/>Checkout supplies target repo and .fullsend config"]
 
             subgraph sandbox["Nested Podman sandbox: Fullsend image + OpenShell supervisor"]
-                stage["Fullsend stages checkout and installs hooks/helper<br/>Supervisor applies filesystem and network policy"]
-                entry["Bash strategy-entrypoint.sh<br/>Clone results and fetch architecture context<br/>Single: supplied RFE; batch: filtered JQL + size/offset"]
+                stage["Fullsend stages checkout and installs hooks/helper<br/>Supervisor applies filesystem and network policy<br/>Local services: TLS passthrough, endpoint/port only<br/>GitHub: inspected read-only, plus upload-pack for architecture-context; push denied"]
+                entry["Bash strategy-entrypoint.sh<br/>Claude settings/trust and CA bundle<br/>Clone results and fetch architecture context<br/>Single: supplied RFE; batch: filtered JQL + size/offset"]
                 locks{"Acquire eligible RFE locks<br/>Any owned work?"}
-                phases["Create strategies for owned RFEs<br/>Refine each new strategy; push refinements to Jira<br/>Review each new strategy"]
+                phases["Create strategies for owned RFEs<br/>Refine each new strategy; push refinements to Jira<br/>Review each new strategy<br/>Architecture criterion needs the fetched context"]
                 helper["Each model phase: run-claude.sh<br/>calls Fullsend's fullsend-claude helper<br/>Claude Code; hooks enabled; effort high"]
                 publish["pipeline-post.sh<br/>Post reviews, generate reports<br/>Commit run/summary and publish to Org Pulse"]
                 finish["Entrypoint cleanup<br/>Release recorded owned locks<br/>Retain outputs and failure diagnostics"]
@@ -60,6 +61,8 @@ flowchart TB
     binary --> prepare
     creator -.->|Same pinned checkout| prepare
     helper -->|Inference| vertex
+    results -.->|Clone at start| entry
+    entry -.->|"Fetch: optional; log and exit status kept, agents continue"| archctx
     entry -.->|Read candidates| jira
     locks -.->|Check and acquire locks| jira
     phases -.->|Create, link and refine| jira
@@ -71,8 +74,9 @@ flowchart TB
     collect -->|Successful strategy job| dashboard
     results --> dashboard
 
-    %% Entry preparation reads strat-pipeline-data and public architecture-context;
-    %% runtime accesses these endpoints through the applied sandbox network policy.
+    %% Sandbox traffic to these endpoints passes through the applied network policy.
+    %% A failed architecture fetch is not a completed architecture review: the
+    %% skipped-check-recorded-as-approve schema bug is tracked separately.
     %% Credentials come from CI variables and the runner's mounted local CA.
     %% Failure/handled termination also invokes cleanup. Hard pod loss cannot run
     %% traps: reconcile owned Jira locks and partial effects before any retry.
