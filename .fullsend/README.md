@@ -73,7 +73,9 @@ set -e
 exit $rc
 ```
 
-Runner environment:
+Runner environment. Fullsend 0.43.0 refuses to run when a variable the
+harness references is unset on the host, so define every optional one, even
+as an empty string:
 
 | Variable | Required | Use |
 | --- | --- | --- |
@@ -97,7 +99,10 @@ Outcomes:
 | non-zero | Pre-script, agent, validation or publication failed | Job trace, `iteration-1/validation-feedback.txt`, `strat-progress.yaml`, `$STRAT_STATE_DIR/run.json` |
 
 A `revise` or `reject` review is a successful run that needs human
-follow-up, not a failure.
+follow-up, not a failure. The recommendation comes from the review's numeric
+scores (`scripts/assess-strat/parse_results.py`); the four prose reviewers'
+verdicts are informational, so `approve` with dissenting prose reviewers is
+valid. The validator checks the recommendation against the scores.
 
 ## Sandbox policy
 

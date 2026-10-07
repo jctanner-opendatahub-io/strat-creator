@@ -44,13 +44,14 @@ def add_strategy(repo, rfe, strat, recommendation="approve"):
         "strat_id": strat, "title": "Strategy", "source_rfe": rfe,
         "priority": "Major", "status": "Refined", "jira_key": strat,
     })
-    verdict = "approve" if recommendation == "approve" else "revise"
+    # Scores consistent with the skill's rule: 8 -> approve, 4 -> revise.
+    each = 2 if recommendation == "approve" else 1
     write_md(art / "strat-reviews" / f"{strat}-review.md", {
         "strat_id": strat, "recommendation": recommendation,
         "needs_attention": recommendation != "approve",
-        "scores": {"feasibility": 2, "testability": 2, "scope": 2,
-                   "architecture": 2, "total": 8},
-        "reviewers": {"feasibility": verdict, "testability": "approve",
+        "scores": {"feasibility": each, "testability": each, "scope": each,
+                   "architecture": each, "total": 4 * each},
+        "reviewers": {"feasibility": "approve", "testability": "approve",
                       "scope": "approve", "architecture": "approve"},
     })
     (art / "strat-originals").mkdir(parents=True, exist_ok=True)
@@ -219,13 +220,43 @@ class TestValidateCompleted:
         assert check(result, make_output(tmp_path), repo,
                      make_state(tmp_path)) == []
 
-    def test_approve_with_dissenting_reviewer_rejected(self, tmp_path):
+    def test_approve_with_dissenting_reviewers_passes(self, tmp_path):
+        # Pipeline 2077/job 4038: score 6/8 -> approve while three prose
+        # reviewers said revise. Prose verdicts are informational only.
         result, out, repo, state = single(tmp_path)
         path = repo / "artifacts/strat-reviews" / f"{STRAT}-review.md"
-        path.write_text(path.read_text().replace("feasibility: approve",
-                                                 "feasibility: revise"))
+        fm = {"strat_id": STRAT, "recommendation": "approve",
+              "needs_attention": False,
+              "scores": {"feasibility": 1, "testability": 1, "scope": 2,
+                         "architecture": 2, "total": 6},
+              "reviewers": {"feasibility": "revise", "testability": "revise",
+                            "scope": "approve", "architecture": "revise"}}
+        write_md(path, fm)
+        assert check(result, out, repo, state) == []
+
+    def test_recommendation_must_follow_scores(self, tmp_path):
+        result, out, repo, state = single(tmp_path)
+        path = repo / "artifacts/strat-reviews" / f"{STRAT}-review.md"
+        text = path.read_text()
+        for dim in ("feasibility: 2", "testability: 2"):
+            text = text.replace(dim, dim[:-1] + "0", 1)
+        path.write_text(text.replace("total: 8", "total: 4"))
         errors = check(result, out, repo, state)
-        assert any("reviewer did not approve" in e for e in errors)
+        assert any("does not follow from scores" in e for e in errors)
+
+    def test_inconsistent_total_rejected(self, tmp_path):
+        result, out, repo, state = single(tmp_path)
+        path = repo / "artifacts/strat-reviews" / f"{STRAT}-review.md"
+        path.write_text(path.read_text().replace("total: 8", "total: 7"))
+        errors = check(result, out, repo, state)
+        assert any("is not the sum" in e for e in errors)
+
+    def test_missing_scores_rejected(self, tmp_path):
+        result, out, repo, state = single(tmp_path)
+        path = repo / "artifacts/strat-reviews" / f"{STRAT}-review.md"
+        path.write_text(path.read_text().replace("  scope: 2\n", ""))
+        errors = check(result, out, repo, state)
+        assert any("review scores incomplete" in e for e in errors)
 
     def test_malformed_frontmatter_is_a_finding(self, tmp_path):
         result, out, repo, state = single(tmp_path)

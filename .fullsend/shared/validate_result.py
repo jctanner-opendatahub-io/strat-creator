@@ -40,6 +40,19 @@ sys.path.insert(0, str(TRUSTED_ROOT / "scripts"))
 
 from artifact_utils import read_frontmatter  # noqa: E402
 
+
+def _load_compute_verdict():
+    """The skill's deterministic verdict rule (scripts/assess-strat)."""
+    import importlib.util
+    path = TRUSTED_ROOT / "scripts" / "assess-strat" / "parse_results.py"
+    spec = importlib.util.spec_from_file_location("strat_parse_results", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.compute_verdict, module.CRITERIA
+
+
+compute_verdict, CRITERIA = _load_compute_verdict()
+
 PHASE_ORDER = ["create", "refine", "push", "review"]
 STRATEGY_PHASES = PHASE_ORDER
 RFE_RE = re.compile(r"^RHAIRFE-\d+$")
@@ -180,16 +193,33 @@ def check_strategy_files(repo, strategy, errors):
                       f"review file says {fm.get('recommendation')}")
     if bool(fm.get("needs_attention")) != strategy["needs_attention"]:
         errors.append(f"{strat}: needs_attention does not match review file")
+    # Prose reviewers' verdicts are informational (strategy-review SKILL.md,
+    # Step 6); they must be present but never decide the recommendation.
     reviewers = fm.get("reviewers") or {}
     missing = [r for r in REVIEWERS if reviewers.get(r) not in
                ("approve", "revise", "reject")]
     if missing:
         errors.append(f"{strat}: review incomplete, no verdict from "
                       f"{', '.join(missing)}")
-    if (strategy["recommendation"] == "approve"
-            and any(v != "approve" for v in reviewers.values())):
-        errors.append(f"{strat}: approve recommended but a reviewer did not "
-                      "approve")
+    # The recommendation comes from the numeric scores only, by the skill's
+    # deterministic rule; check the file is consistent with its own scores.
+    scores = fm.get("scores") or {}
+    try:
+        values = {c: int(scores[c.lower()]) for c in CRITERIA}
+        total = int(scores["total"])
+    except (KeyError, TypeError, ValueError):
+        errors.append(f"{strat}: review scores incomplete")
+        return
+    if total != sum(values.values()):
+        errors.append(f"{strat}: score total {total} is not the sum of "
+                      f"{values}")
+        return
+    verdict, attention = compute_verdict({"Total": total, **values})
+    if (fm.get("recommendation") != verdict.lower()
+            or bool(fm.get("needs_attention")) != attention):
+        errors.append(f"{strat}: recommendation {fm.get('recommendation')} "
+                      f"does not follow from scores {values} (total "
+                      f"{total} -> {verdict.lower()})")
 
 
 def unclaimed_files(repo, strategies):
