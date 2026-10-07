@@ -21,7 +21,7 @@ done
 ROOT="${STRAT_CREATOR_ROOT:-$PWD}"
 CI_SCRIPTS="$ROOT/.fullsend/scripts/ci"
 # The local assessment directory is unused by strategy CI. Preserve all other
-# settings and Fullsend hooks; do not pre-accept workspace trust.
+# settings and Fullsend hooks; configure trust for this authorized CI project.
 python3 "$CI_SCRIPTS/prepare-claude-settings.py" "$ROOT"
 source "$CI_SCRIPTS/ca-bundle.sh"
 CA_BUNDLE="${TMPDIR:-/tmp}/strat-ca-${CI_JOB_ID:-$$}.pem"
@@ -59,6 +59,8 @@ fi
 for dir in strat-tasks strat-reviews strat-originals reports; do
   rm -rf -- "$ARTIFACTS/$dir"
 done
+rm -f "$ARTIFACTS/claude-stderr.log"
+rm -rf -- "$ARTIFACTS/claude-stderr"
 rm -f "$ARTIFACTS/pipeline-data.json" "$ARTIFACTS/strat-tickets.md" "$ARTIFACTS/strat-skipped.md" "$ARTIFACTS/claude-otel.jsonl" "$ARTIFACTS/claude-otel-rate.json"
 mkdir -p "$ARTIFACTS/.git/info"
 printf '%s\n' 'locked-rfe-ids.txt' >> "$ARTIFACTS/.git/info/exclude"
@@ -102,6 +104,9 @@ cleanup() {
   for file in "$ARTIFACTS/pipeline-data.json" "$ARTIFACTS/strat-tickets.md" "$ARTIFACTS/strat-skipped.md"; do
     [[ -f "$file" ]] && cp -f "$file" "$OUTPUT_DIR/" || true
   done
+  if [[ -d "$ARTIFACTS/claude-stderr" ]]; then
+    cp -a "$ARTIFACTS/claude-stderr" "$OUTPUT_DIR/" || rc=1
+  fi
   if [[ -d "$ARTIFACTS/reports" ]]; then
     mkdir -p "$OUTPUT_DIR/reports"
     cp -a "$ARTIFACTS/reports/." "$OUTPUT_DIR/reports/"

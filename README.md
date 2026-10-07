@@ -218,5 +218,9 @@ The integration caller masks credentials before forwarding live logs.
 The Fullsend strategy entrypoint removes the unused `/tmp/strat-assess`
 additional-directory permission from its disposable checkout before starting
 Claude. That directory belongs to local assessment tooling. Other project
-settings and Fullsend security hooks are preserved; the entrypoint does not
-pre-accept Claude workspace trust. Malformed settings fail startup.
+settings and Fullsend security hooks are preserved. The entrypoint merges
+this project's trust acceptance into
+`$CLAUDE_CONFIG_DIR/.claude.json` with an atomic, owner-only write, preserving
+existing config. Missing config is created; malformed config fails startup.
+Each Claude invocation retains a separate stderr artifact and prints it once.
+Historical working stderr logs are cleared after cloning results.

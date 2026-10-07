@@ -18,10 +18,11 @@ source "$CI_SCRIPTS/strategy-model.sh"
 ARTIFACTS="$ROOT/artifacts"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/strat-claude.XXXXXX")"
 FIFO="$TMP_DIR/stream.jsonl"
-STDERR_LOG="$ARTIFACTS/claude-stderr.log"
+STDERR_DIR="$ARTIFACTS/claude-stderr"
 CLAUDE_PID=""
 STREAM_PID=""
-mkdir -p "$ARTIFACTS"
+mkdir -p "$STDERR_DIR"
+STDERR_LOG="$(mktemp "$STDERR_DIR/invocation.XXXXXX.log")"
 mkfifo "$FIFO"
 source "$CI_SCRIPTS/ca-bundle.sh"
 fullsend_prepare_ca_bundle "$TMP_DIR/ca-bundle.pem"
@@ -50,7 +51,7 @@ if [[ -n "$owned_keys" && -r "$ARTIFACTS/locked-rfe-ids.txt" ]] &&
    [[ "$(tr '\n' ' ' < "$ARTIFACTS/locked-rfe-ids.txt" | xargs)" == "$owned_keys" ]]; then
   printf -v prompt '%s\n\n%s' "$1" "Authorized automated CI execution: this entrypoint owns the strat-creator-processing lock for $owned_keys, recorded in artifacts/locked-rfe-ids.txt. These labels are this run's locks, not another run's locks. Process only those owned RFEs. Execute the requested strategy skill and its documented Jira clone/update/attachment/label writes without interactive approval; the user authorized this workflow. Preserve all release, quality, processed-strategy, needs-attention, and human-sign-off gates. If a gate blocks work, report the failure and stop. Do not create a duplicate strategy. Complete the skill's documented completion marker."
 fi
-fullsend-claude "$prompt" >"$FIFO" 2>>"$STDERR_LOG" &
+fullsend-claude "$prompt" >"$FIFO" 2>"$STDERR_LOG" &
 CLAUDE_PID=$!
 python3 -u "$CI_SCRIPTS/stream-claude.py" --claude-pid "$CLAUDE_PID" <"$FIFO" &
 STREAM_PID=$!

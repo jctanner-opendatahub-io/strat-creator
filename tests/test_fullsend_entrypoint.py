@@ -95,6 +95,7 @@ def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="
         "RESULTS_PUSH_TOKEN": "test-token",
         "RESULTS_GIT_USER": "oauth2",
         "CI_JOB_ID": "unit-test",
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
         "EVENT_LOG": str(log),
         "LOCKED": "1" if locked else "0",
         "FAIL_STAGE": fail_stage,
@@ -183,6 +184,7 @@ def test_all_strategy_children_invoke_exact_model_and_force_subagent_pin(tmp_pat
         "'CLAUDE_CODE_SUBAGENT_MODEL_FORCE','ANTHROPIC_MODEL')\n"
         "with open(os.environ['MODEL_CAPTURE'],'a') as f: "
         "f.write(json.dumps({'argv':sys.argv[1:],'env':{k:os.getenv(k) for k in keys}})+'\\n')\n"
+        "print('stderr: '+sys.argv[-1], file=sys.stderr)\n"
         "print(json.dumps({'type':'system','subtype':'init','model':'claude-opus-4-6'}))\n"
         "print(json.dumps({'type':'result','is_error':False,'result':'smoke'}))\n"
     )
@@ -194,11 +196,20 @@ def test_all_strategy_children_invoke_exact_model_and_force_subagent_pin(tmp_pat
                 "MODEL_CAPTURE": str(capture), "ANTHROPIC_MODEL": "claude-opus-4-8",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "opus", "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
                 "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "0", "FULLSEND_CA_BUNDLE_READY": "1"})
+    (root / "artifacts").mkdir()
+    (root / "artifacts/claude-stderr.log").write_text("historical stderr\n")
     for phase in ("create", "refine", "review"):
         prompt = f"/strategy-{phase} TEST-1"
         result = subprocess.run(["bash", str(ci / "run-claude.sh"), prompt],
                                 cwd=root, env=env, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
+        assert result.stderr.count("stderr: ") == 1
+        assert f"stderr: {prompt}" in result.stderr
+        assert "historical stderr" not in result.stderr
+    logs = list((root / "artifacts/claude-stderr").glob("*.log"))
+    assert len(logs) == 3
+    assert {path.read_text().strip() for path in logs} == {
+        f"stderr: /strategy-{phase} TEST-1" for phase in ("create", "refine", "review")}
     invocations = [json.loads(line) for line in capture.read_text().splitlines()]
     assert len(invocations) == 3
     for invocation, phase in zip(invocations, ("create", "refine", "review")):
@@ -397,3 +408,43 @@ def test_entrypoint_banner_is_first_output_before_argument_validation():
         "#" * 67,
     ]
     assert "usage:" in result.stderr
+
+
+def test_workspace_trust_preserves_config_and_is_repeatable(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("prepare_trust", CI_DIR / "prepare-claude-settings.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    root = tmp_path / "repo"
+    config = tmp_path / "config"
+    config.mkdir()
+    path = config / ".claude.json"
+    settings = {"other": {"keep": True}, "projects": {
+        str(root): {"custom": "preserved", "hasTrustDialogAccepted": False},
+        "/other/project": {"hasTrustDialogAccepted": False}}}
+    path.write_text(json.dumps(settings))
+    helper.prepare_trust(root, config)
+    settings["projects"][str(root)]["hasTrustDialogAccepted"] = True
+    assert json.loads(path.read_text()) == settings
+    assert path.stat().st_mode & 0o777 == 0o600
+    before = path.read_bytes()
+    helper.prepare_trust(root, config)
+    assert path.read_bytes() == before
+    assert list(config.iterdir()) == [path]
+    fresh = tmp_path / "fresh"
+    helper.prepare_trust(root, fresh)
+    assert json.loads((fresh / ".claude.json").read_text()) == {
+        "projects": {str(root): {"hasTrustDialogAccepted": True}}}
+
+
+def test_workspace_trust_rejects_malformed_config_without_replacing_it(tmp_path):
+    config = tmp_path / "config"
+    config.mkdir()
+    path = config / ".claude.json"
+    path.write_text("invalid json")
+    result = subprocess.run([sys.executable, str(CI_DIR / "prepare-claude-settings.py"),
+                             str(tmp_path / "repo")], capture_output=True,
+                            env=dict(os.environ, CLAUDE_CONFIG_DIR=str(config)))
+    assert result.returncode != 0
+    assert path.read_text() == "invalid json"
+    assert list(config.iterdir()) == [path]
