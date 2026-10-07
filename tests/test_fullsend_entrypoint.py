@@ -13,11 +13,13 @@ ENTRYPOINT = REPO / ".fullsend/scripts/strategy-entrypoint.sh"
 CI_DIR = REPO / ".fullsend/scripts/ci"
 
 
-def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="RHAIRFE-1234 RHAIRFE-1235", acquired="", size="", offset="", stale=False):
+def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="RHAIRFE-1234 RHAIRFE-1235", acquired="", size="", offset="", stale=False, context_rc="0"):
     root = tmp_path / "repo"
     ci = root / ".fullsend/scripts/ci"
     (root / "scripts").mkdir(parents=True)
     ci.mkdir(parents=True)
+    (root / "scripts/fetch-architecture-context.sh").write_text(
+        '#!/bin/sh\necho "context fetch stdout"\necho "context fetch stderr" >&2\nexit "${MOCK_CONTEXT_RC:-0}"\n')
     log = tmp_path / "events.log"
 
     (ci / "clone-data-repo.sh").write_text(
@@ -97,6 +99,7 @@ def _run_flow(tmp_path, *, locked=True, fail_stage="", batch=False, candidates="
         "CI_JOB_ID": "unit-test",
         "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
         "EVENT_LOG": str(log),
+        "MOCK_CONTEXT_RC": context_rc,
         "LOCKED": "1" if locked else "0",
         "FAIL_STAGE": fail_stage,
         "MOCK_CANDIDATES": candidates if batch else "RHAIRFE-1234", "ACQUIRED": acquired,
@@ -448,3 +451,39 @@ def test_workspace_trust_rejects_malformed_config_without_replacing_it(tmp_path)
     assert result.returncode != 0
     assert path.read_text() == "invalid json"
     assert list(config.iterdir()) == [path]
+
+
+def test_initial_context_fetch_logs_stdout_stderr_and_status(tmp_path):
+    result, events, output = _run_flow(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "before starting Claude" in result.stdout
+    log = (output / "architecture-context-fetch.log").read_text()
+    assert "context fetch stdout" in log and "context fetch stderr" in log
+    assert "Architecture context fetch exit status: 0" in log
+    assert (output / "architecture-context-fetch.exit-code").read_text().strip() == "0"
+    assert any(event.startswith("claude ") for event in events)
+
+
+def test_initial_context_failure_is_visible_and_preserves_optional_behavior(tmp_path):
+    result, events, output = _run_flow(tmp_path, context_rc="22")
+    assert result.returncode == 0, result.stderr
+    assert "architecture context setup failed" in result.stdout
+    assert "Architecture context fetch exit status: 22" in result.stdout
+    assert (output / "architecture-context-fetch.exit-code").read_text().strip() == "22"
+    assert any(event.startswith("claude ") for event in events)
+
+
+def test_native_context_fetch_reports_http_error_before_json_parsing(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text('#!/bin/sh\necho "curl: (22) HTTP 403" >&2\nexit 22\n')
+    curl.chmod(0o755)
+    env = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}")
+    env.pop("RFE_SKIP_BOOTSTRAP", None)
+    result = subprocess.run(["bash", str(REPO / "scripts/fetch-architecture-context.sh")],
+                            cwd=tmp_path, env=env, text=True, capture_output=True)
+    assert result.returncode == 22
+    assert "HTTP 403" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (tmp_path / ".context/architecture-context/LATEST_VERSION").exists()

@@ -128,6 +128,22 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Fetch outside the agents so setup errors are visible in the runner trace.
+# Context is optional under the existing skills; keep that behavior explicit.
+echo "--- Fetching architecture context before starting Claude ---"
+CONTEXT_LOG="$OUTPUT_DIR/architecture-context-fetch.log"
+set +e
+(cd "$ROOT" && timeout 180 bash "$ROOT/scripts/fetch-architecture-context.sh") 2>&1 | tee "$CONTEXT_LOG"
+context_status=("${PIPESTATUS[@]}")
+set -e
+[[ "${context_status[1]}" -eq 0 ]] || { echo "ERROR: cannot retain architecture fetch log" >&2; exit 1; }
+CONTEXT_RC="${context_status[0]}"
+printf 'Architecture context fetch exit status: %s\n' "$CONTEXT_RC" | tee -a "$CONTEXT_LOG"
+printf '%s\n' "$CONTEXT_RC" > "$OUTPUT_DIR/architecture-context-fetch.exit-code"
+if [[ "$CONTEXT_RC" -ne 0 ]]; then
+  echo "WARNING: architecture context setup failed; proceeding under existing optional-context behavior. See architecture-context-fetch.log."
+fi
+
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
 export OTEL_METRICS_EXPORTER=otlp
 export OTEL_LOGS_EXPORTER=otlp

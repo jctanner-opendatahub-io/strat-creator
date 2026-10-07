@@ -224,3 +224,10 @@ this project's trust acceptance into
 existing config. Missing config is created; malformed config fails startup.
 Each Claude invocation retains a separate stderr artifact and prints it once.
 Historical working stderr logs are cleared after cloning results.
+
+The entrypoint fetches architecture context before starting Claude, with a
+180-second setup timeout. stdout/stderr and exit status are visible in the job
+trace and retained as `architecture-context-fetch.log` and
+`architecture-context-fetch.exit-code`. Fetch failure remains optional under
+the existing skill contract; it is reported explicitly. GitHub API failures
+include curl's HTTP error instead of being hidden by JSON parsing.
