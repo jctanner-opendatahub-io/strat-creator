@@ -308,6 +308,17 @@ def test_service_permissions_are_in_applied_policy():
     assert all(entry["enforcement"] == "enforce" and "tls" not in entry
                for host, entry in endpoints.items() if host not in local_hosts)
     assert endpoints["api.github.com"]["access"] == "read-only"
+    # Architecture context clone needs POST git-upload-pack; the exact rule set
+    # keeps push (git-receive-pack) and any other POST denied.
+    git_transport = endpoints["github.com"]
+    assert "access" not in git_transport
+    assert sorted((rule["allow"]["method"], rule["allow"]["path"])
+                  for rule in git_transport["rules"]) == [
+        ("GET", "**"), ("HEAD", "**"), ("OPTIONS", "**"),
+        ("POST", "/opendatahub-io/architecture-context/git-upload-pack"),
+    ]
+    fetch = (REPO / "scripts/fetch-architecture-context.sh").read_text()
+    assert "https://github.com/opendatahub-io/architecture-context " in fetch
     binaries = [entry["path"] for entry in services["binaries"]]
     assert any(fnmatch.fnmatch(
         "/sandbox/.uv/python/cpython-3.14.3-linux-x86_64-gnu/bin/python3.14", pattern,

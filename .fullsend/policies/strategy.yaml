@@ -24,11 +24,18 @@ network_policies:
     - host: orgpulse.local
       port: 443
       tls: skip
+    # Git smart HTTP clone/fetch is GET */info/refs then POST */git-upload-pack,
+    # which the read-only preset (GET/HEAD/OPTIONS) denies. Allow that POST for
+    # the architecture context only; git-receive-pack (push) stays denied.
     - host: github.com
       port: 443
       protocol: rest
-      access: read-only
       enforcement: enforce
+      rules:
+      - allow: {method: GET, path: '**'}
+      - allow: {method: HEAD, path: '**'}
+      - allow: {method: OPTIONS, path: '**'}
+      - allow: {method: POST, path: /opendatahub-io/architecture-context/git-upload-pack}
     - host: api.github.com
       port: 443
       protocol: rest
