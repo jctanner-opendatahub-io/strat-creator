@@ -255,7 +255,7 @@ def test_fullsend_build_artifact_is_pinned_and_verified():
     builder = (CI_DIR / "build-fullsend.sh").read_text()
     launcher = (CI_DIR / "with-openshell.sh").read_text()
 
-    assert "FEATURE_SHA=8f628aec6d113181914e2a2307fce17488e2c4b4" in builder
+    assert "FEATURE_SHA=bdedebeaf96cbfabf298472397321a946af621c9" in builder
     assert "git -C \"$SOURCE_DIR\" rev-parse HEAD" in builder
     assert "fullsend-source-sha" in builder
     assert "fullsend.sha256" in builder

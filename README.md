@@ -206,3 +206,11 @@ Tests run automatically on PRs and pushes to `main` via GitHub Actions (Python 3
 - **strat-pipeline** (GitLab) — CI runner for this pipeline
 - **strat-pipeline-data** (GitLab) — Data repo with timestamped run artifacts and JSON outputs
 - **strat-dashboard** (GitLab) — GitLab Pages site serving the dashboard and JSON API
+
+### Fullsend CI progress
+
+The script entrypoint forwards its readable stdout to CI and retains it in the
+iteration output artifact. The Claude renderer supports completed assistant
+messages and partial event streams without printing a response twice. Tool
+summaries remain compact; transcripts retain complete tool inputs and results.
+The integration caller masks credentials before forwarding live logs.

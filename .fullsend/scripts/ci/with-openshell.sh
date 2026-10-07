@@ -16,7 +16,7 @@ if [[ -z "$JOB_ID" || ! "$JOB_ID" =~ ^[[:alnum:]_-]+$ ]]; then
 fi
 
 VERSION=0.0.112-rhaiv.0
-FULLSEND_FEATURE_SHA=8f628aec6d113181914e2a2307fce17488e2c4b4
+FULLSEND_FEATURE_SHA=bdedebeaf96cbfabf298472397321a946af621c9
 SOCKET=/run/podman/podman.sock
 NAME="strat-$JOB_ID"
 NETWORK="openshell-strat-$JOB_ID"

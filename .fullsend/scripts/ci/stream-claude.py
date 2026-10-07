@@ -37,6 +37,7 @@ else:
 in_text = False
 in_thinking = False
 last_block_type = None
+partial_message = False
 tool_name = None
 tool_json = ""
 _line_buf = ""
@@ -219,11 +220,29 @@ while True:
         end_block()
         continue
 
+    # Fullsend emits completed assistant messages without partial deltas.
+    # When partial events are enabled, their completed message is a duplicate.
+    if msg_type == "assistant":
+        if not partial_message:
+            for block in msg.get("message", {}).get("content", []):
+                kind = block.get("type")
+                if kind == "text":
+                    emit(block.get("text", ""))
+                    flush_emit()
+                    print(flush=True)
+                elif kind == "tool_use":
+                    tool_name = block.get("name", "")
+                    tool_json = json.dumps(block.get("input", {}))
+                    end_block()
+        partial_message = False
+        continue
+
     if msg_type != "stream_event":
         continue
 
     event = msg.get("event", {})
     event_type = event.get("type")
+    partial_message = True
 
     # Content block start
     if event_type == "content_block_start":

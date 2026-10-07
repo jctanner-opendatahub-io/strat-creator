@@ -2,7 +2,7 @@
 # Build the Fullsend entrypoint feature as a separate CI artifact.
 set -Eeuo pipefail
 
-FEATURE_SHA=8f628aec6d113181914e2a2307fce17488e2c4b4
+FEATURE_SHA=bdedebeaf96cbfabf298472397321a946af621c9
 FEATURE_BRANCH=feat/entrypoint-harness
 REPO_URL="${FULLSEND_REPO_URL:-https://github.com/jctanner/fullsend.git}"
 ROOT="${CI_PROJECT_DIR:-$PWD}"
