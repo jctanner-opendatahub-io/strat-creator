@@ -94,6 +94,9 @@ def make_output(tmp_path, phases=("create", "refine", "push", "review"),
     lines = [f"run_id: {run_id}"]
     for i, phase in enumerate(phases):
         lines.append(f"phase_{phase}: 2026-10-07T12:0{i}:00Z")
+        if phase in ("refine", "review"):
+            lines += [f"{phase}_{strat}: 2026-10-07T12:0{i}:00Z"
+                      for _, strat in mapping]
     lines += [f"map_{rfe}: {strat}" for rfe, strat in mapping]
     (out / "strat-progress.yaml").write_text("\n".join(lines) + "\n")
     return out
@@ -189,6 +192,22 @@ class TestValidateCompleted:
         errors = check(completed(), out, make_repo(tmp_path),
                        make_state(tmp_path))
         assert any("belongs to run job-1" in e for e in errors)
+
+    def test_missing_per_strategy_marker_rejected(self, tmp_path):
+        result, out, repo, state = single(tmp_path)
+        text = (out / "strat-progress.yaml").read_text()
+        (out / "strat-progress.yaml").write_text(
+            text.replace(f"review_{STRAT}:", "reviewed_nothing:"))
+        errors = check(result, out, repo, state)
+        assert any(f"review of {STRAT} not recorded" in e for e in errors)
+
+    def test_marker_for_foreign_strat_rejected(self, tmp_path):
+        result, out, repo, state = single(tmp_path)
+        with open(out / "strat-progress.yaml", "a") as f:
+            f.write("review_RHAISTRAT-99: 2026-10-07T12:09:00Z\n")
+        errors = check(result, out, repo, state)
+        assert any("review_RHAISTRAT-99 for a STRAT not in the result" in e
+                   for e in errors)
 
     def test_missing_mapping_rejected(self, tmp_path):
         out = make_output(tmp_path, mapping=())
@@ -433,6 +452,17 @@ class TestValidateCli:
         assert proc.returncode == 1
         assert "FAIL: run_id job-other differs" in proc.stdout
 
+    def test_missing_result_asks_for_resume(self, tmp_path):
+        (tmp_path / "output").mkdir()
+        proc = subprocess.run(
+            ["bash", str(SHARED / "validate-output.sh")], cwd=tmp_path,
+            capture_output=True, text=True,
+            env={**os.environ, "FULLSEND_OUTPUT_SCHEMA": str(SCHEMA),
+                 "TARGET_REPO_DIR": str(tmp_path)})
+        assert proc.returncode == 1
+        assert "stopped before finishing" in proc.stdout
+        assert "progress.sh read" in proc.stdout
+
     def test_not_json(self, tmp_path):
         (tmp_path / "output").mkdir()
         (tmp_path / "output" / "agent-result.json").write_text("```json")
@@ -443,6 +473,56 @@ class TestValidateCli:
                  "TARGET_REPO_DIR": str(tmp_path)})
         assert proc.returncode == 1
         assert "cannot read" in proc.stdout
+
+
+# ---------------------------------------------------------------- progress
+
+class TestProgress:
+    """progress.sh survives Fullsend clearing the output dir between tries."""
+
+    def run(self, repo, out, *args):
+        return subprocess.run(
+            ["bash", str(SHARED / "progress.sh"), *args], cwd=repo,
+            capture_output=True, text=True,
+            env={**os.environ, "FULLSEND_OUTPUT_DIR": str(out)})
+
+    def setup(self, tmp_path):
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts" / "state.py", repo / "scripts")
+        out = tmp_path / "output"
+        out.mkdir()
+        return repo, out
+
+    def test_records_and_mirrors(self, tmp_path):
+        repo, out = self.setup(tmp_path)
+        assert self.run(repo, out, "init", "run_id=r1", "mode=batch").returncode == 0
+        assert self.run(repo, out, "set", "map_RHAIRFE-1=RHAISTRAT-1").returncode == 0
+        assert self.run(repo, out, "mark", "refine_RHAISTRAT-1", "phase_refine").returncode == 0
+        canonical = (repo / "tmp/strat-progress.yaml").read_text()
+        assert canonical == (out / "strat-progress.yaml").read_text()
+        progress = validate_result.read_progress(repo / "tmp/strat-progress.yaml")
+        assert progress["map_RHAIRFE-1"] == "RHAISTRAT-1"
+        assert progress["refine_RHAISTRAT-1"] == progress["phase_refine"]
+
+    def test_retry_resumes_from_repository_copy(self, tmp_path):
+        repo, out = self.setup(tmp_path)
+        self.run(repo, out, "init", "run_id=r1", "mode=batch")
+        self.run(repo, out, "mark", "phase_create")
+        # Fullsend 0.43.0 runs `rm -rf <workspace>/output/*` before iteration 2.
+        for f in out.iterdir():
+            f.unlink()
+        again = self.run(repo, out, "init", "run_id=r1", "mode=batch")
+        assert again.returncode == 1 and "this is a resume" in again.stderr
+        read = self.run(repo, out, "read")
+        assert "phase_create" in read.stdout
+        assert (out / "strat-progress.yaml").is_file()
+
+    def test_read_without_progress(self, tmp_path):
+        repo, out = self.setup(tmp_path)
+        read = self.run(repo, out, "read")
+        assert read.returncode == 0 and "no progress recorded" in read.stdout
+        assert not (out / "strat-progress.yaml").exists()
 
 
 # ------------------------------------------------------------------ handoff
@@ -793,7 +873,8 @@ def test_harness_wiring(name):
     assert harness["env"]["sandbox"]["CLAUDE_CODE_SUBAGENT_MODEL"] == \
         "claude-opus-4-6"
     assert harness["env"]["sandbox"]["STRAT_MODE"] == name.split("-")[1]
-    assert harness["validation_loop"]["max_iterations"] == 1
+    assert harness["validation_loop"]["max_iterations"] == 2
+    assert harness["validation_loop"]["feedback_mode"] == "append"
     # The host record and token-bearing values stay out of the sandbox.
     assert "STRAT_STATE_DIR" not in harness["env"]["sandbox"]
     assert "STRAT_STATE_DIR" in harness["env"]["runner"]
@@ -809,3 +890,6 @@ def test_harness_wiring(name):
     prompt = (FULLSEND / harness["agent"]).read_text()
     assert "tmp/strat-input.json" in prompt
     assert "Never run `scripts/lock_issues.py`" in prompt
+    assert "Do not end your turn until `agent-result.json` is written" in prompt
+    assert "progress.sh read" in prompt
+    assert "state.py set \"$P\"" not in prompt

@@ -43,15 +43,31 @@ The host holds the Jira processing locks for `BATCH` and releases them after
 the run, whatever happens. Never run `scripts/lock_issues.py` and never add or
 remove `strat-creator-processing`.
 
-## Progress
+## Progress and resume
 
-Keep `$FULLSEND_OUTPUT_DIR/strat-progress.yaml` with `scripts/state.py` only;
-call it `P` below. The host collects it even if you fail. Record a phase
-once it has finished for the whole batch, never before:
+Record progress only with `bash .fullsend/shared/progress.sh` (`PROG` below).
+It keeps `tmp/strat-progress.yaml` and mirrors it to `$FULLSEND_OUTPUT_DIR`
+for the host. Record a step only after it has finished, never before:
 
-```bash
-python3 scripts/state.py set "$P" phase_<name>="$(python3 scripts/state.py timestamp)"
-```
+- `PROG mark phase_<name>` when a phase has finished for the whole batch;
+- `PROG mark refine_<RHAISTRAT-key>` / `PROG mark review_<RHAISTRAT-key>`
+  after each strategy's refine or review.
+
+**First, check for a resume.** Run `bash .fullsend/shared/progress.sh read`.
+If it shows the same `run_id` as the input file, this is a validation retry
+in the same sandbox after an earlier attempt stopped early. Do not `init`.
+Continue from the first phase without a `phase_` entry, and within it skip
+every strategy that already has its `refine_` or `review_` entry. Never run
+create again for an RFE that has a `map_` entry. The validation feedback
+appended to this prompt says what was missing: complete only the missing
+work, and never edit artifacts or frontmatter just to satisfy a check. If the
+feedback reports wrong or inconsistent data rather than missing work, write a
+`failed` result. If the file shows a different `run_id`, write a `failed`
+result.
+
+Do not end your turn until `agent-result.json` is written. A skill's closing
+report or advice to the user is not the end of your work: after each skill,
+continue with the next strategy or phase.
 
 ## Pipeline
 
@@ -60,12 +76,10 @@ starting the next. Each phase names the skill or helper that does the work;
 follow that skill's `SKILL.md` and do not reimplement its logic here. Do not
 run repository tests: strategy work is workflow output.
 
-1. **Start progress** with the run ID from the input file:
+1. **Start progress** (skip on a resume) with the run ID from the input file:
 
    ```bash
-   P="$FULLSEND_OUTPUT_DIR/strat-progress.yaml"
-   python3 scripts/state.py init "$P" run_id=<run_id> mode=batch
-   python3 scripts/state.py write-ids "$FULLSEND_OUTPUT_DIR/strat-batch-ids.txt" <BATCH keys>
+   bash .fullsend/shared/progress.sh init run_id=<run_id> mode=batch
    ```
 
 2. **Create.** Run the `strategy-create` skill once with exactly the `BATCH`
@@ -82,37 +96,38 @@ run repository tests: strategy work is workflow output.
    - **Created or imported:** exactly one `artifacts/strat-tasks/RHAISTRAT-*.md`
      has it as `source_rfe` (read with `python3 scripts/frontmatter.py read
      <path>`). Record the mapping:
-     `python3 scripts/state.py set "$P" map_<RFE>=<RHAISTRAT-key>`.
+     `bash .fullsend/shared/progress.sh set map_<RFE>=<RHAISTRAT-key>`.
    - **Anything else** (no outcome, several files, or a `STRAT-*` file without
      a Jira key) is a `failed` result.
 
-   Record `phase_create`. If every `BATCH` key was skipped by the gate, the run
-   is `completed` with no strategies; go to Output.
+   Then `PROG mark phase_create`. If every `BATCH` key was skipped by the
+   gate, the run is `completed` with no strategies; go to Output.
 
 3. **Refine.** For each mapped STRAT, in `BATCH` order, run
-   `/strategy-refine <RHAISTRAT-key>`. Each strategy's frontmatter `status`
-   must then be `Refined`. Record `phase_refine` after the last one.
+   `/strategy-refine <RHAISTRAT-key>`; its frontmatter `status` must then be
+   `Refined`; then `PROG mark refine_<RHAISTRAT-key>`. After the last one,
+   `PROG mark phase_refine`.
 
 4. **Push.** Push every refined strategy to Jira with the deterministic helper,
-   once, then record `phase_push`. A non-zero exit is a `failed` result.
+   once, then `PROG mark phase_push`. A non-zero exit is a `failed` result.
 
    ```bash
    python3 scripts/push_refined_strategies.py --artifacts-dir artifacts/strat-tasks
    ```
 
 5. **Review.** For each mapped STRAT, in `BATCH` order, run
-   `/strategy-review <RHAISTRAT-key>`. Record `phase_review` after the last
-   one. Reviews must read architecture context from
-   `.context/architecture-context/`, which the host fetched before you started.
-   If it is missing, do not review from the strategy text alone: write a
-   `failed` result saying the context is missing. A `revise` or `reject`
-   recommendation is a successful outcome that needs human follow-up; report
-   it truthfully and never change a verdict.
+   `/strategy-review <RHAISTRAT-key>`, then `PROG mark review_<RHAISTRAT-key>`.
+   After the last one, `PROG mark phase_review`. Reviews must read
+   architecture context from `.context/architecture-context/`, which the host
+   fetched before you started. If it is missing, do not review from the
+   strategy text alone: write a `failed` result saying the context is missing.
+   A `revise` or `reject` recommendation is a successful outcome that needs
+   human follow-up; report it truthfully and never change a verdict.
 
 If any step fails for any strategy and following the skill does not recover
 it, stop and write a `failed` result naming the RFE, the STRAT and the phase.
 Do not skip the failed strategy and carry on, and do not retry Jira writes by
-hand. A later run resumes from Jira state.
+hand.
 
 ## Rules
 
@@ -169,7 +184,7 @@ actually happened, not what was intended.
   entry appears exactly once in `strategies` or `skipped`.
 - `strategies`: one per mapped STRAT, in `BATCH` order; `recommendation` and
   `needs_attention` copied from its review file's frontmatter.
-- `completed_phases`: the phases recorded in `strat-progress.yaml`, in order.
+- `completed_phases`: the `phase_` entries recorded in `tmp/strat-progress.yaml`, in order.
 - `architecture_context`: `available` when
   `.context/architecture-context/LATEST_VERSION` names a directory with
   `PLATFORM.md`; otherwise `missing`.

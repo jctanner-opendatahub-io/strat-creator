@@ -46,8 +46,17 @@ OpenShell gateway.
    its exit status. Fullsend 0.43.0 skips the post-script when validation
    fails, so release cannot live there.
 
-One agent attempt (`max_iterations: 1`): a retry would repeat Jira writes,
-and safe in-run resume is not proven.
+Up to two agent iterations (`max_iterations: 2`, `feedback_mode: append`),
+as in rfe-creator. A second iteration runs in the same sandbox. Fullsend
+clears `$FULLSEND_OUTPUT_DIR` first, but the repository is kept, so
+progress lives in `tmp/strat-progress.yaml` (`shared/progress.sh`,
+mirrored to the output directory). The retry prompt carries the
+validator's findings. The agent resumes from the first phase without a
+`phase_` entry and skips strategies that already have `refine_` or
+`review_` entries. The skills' label gates also refuse a second review of a
+STRAT that already has a verdict label. This exists because a headless agent
+can end its turn after a skill's closing report mid-batch (local pipeline
+2083).
 
 ## Invocation
 

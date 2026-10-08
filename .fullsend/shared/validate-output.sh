@@ -12,7 +12,9 @@ SHARED="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RESULT_FILE="output/agent-result.json"
 
 if [[ ! -f "${RESULT_FILE}" ]]; then
-  echo "FAIL: ${RESULT_FILE} not found"
+  # This text is appended to the retry prompt (feedback_mode: append).
+  echo "FAIL: ${RESULT_FILE} not found: the previous attempt stopped before finishing."
+  echo "FAIL: Resume this run: run 'bash .fullsend/shared/progress.sh read', complete only the phases and strategies without entries, then write the result."
   exit 1
 fi
 if [[ -z "${TARGET_REPO_DIR:-}" || ! -d "${TARGET_REPO_DIR}" ]]; then

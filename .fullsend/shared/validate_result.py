@@ -154,6 +154,20 @@ def check_phases(result, progress, errors):
         if progress.get(f"phase_{phase}") and phase not in phases:
             errors.append(f"phase {phase} recorded in {PROGRESS_FILE} but "
                           "not reported in completed_phases")
+    # Per-strategy markers let a validation retry resume a partly finished
+    # phase; every claimed strategy must have one for each per-strategy phase.
+    strats = {s["strat"] for s in result["strategies"]}
+    for phase in ("refine", "review"):
+        if phase in phases:
+            for strat in sorted(strats):
+                if not progress.get(f"{phase}_{strat}"):
+                    errors.append(f"{phase} of {strat} not recorded in "
+                                  f"{PROGRESS_FILE}")
+        for key in progress:
+            if key.startswith(f"{phase}_RHAISTRAT-") and \
+                    key.split("_", 1)[1] not in strats:
+                errors.append(f"{PROGRESS_FILE} records {key} for a STRAT "
+                              "not in the result")
 
 
 def frontmatter(path, errors):

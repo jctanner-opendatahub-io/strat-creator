@@ -38,15 +38,26 @@ The host holds the Jira processing lock for `RFE` and releases it after the
 run, whatever happens. Never run `scripts/lock_issues.py` and never add or
 remove `strat-creator-processing`.
 
-## Progress
+## Progress and resume
 
-Keep `$FULLSEND_OUTPUT_DIR/strat-progress.yaml` with `scripts/state.py` only;
-call it `P` below. The host collects it even if you fail. Record a phase
-immediately after it finishes, never before:
+Record progress only with `bash .fullsend/shared/progress.sh` (`PROG` below).
+It keeps `tmp/strat-progress.yaml` and mirrors it to `$FULLSEND_OUTPUT_DIR`
+for the host. Record a step only after it has finished, never before:
+`PROG mark phase_<name>`, plus `PROG mark refine_<RHAISTRAT-key>` and
+`PROG mark review_<RHAISTRAT-key>` after the strategy's refine and review.
 
-```bash
-python3 scripts/state.py set "$P" phase_<name>="$(python3 scripts/state.py timestamp)"
-```
+**First, check for a resume.** Run `bash .fullsend/shared/progress.sh read`.
+If it shows the same `run_id` as the input file, this is a validation retry
+in the same sandbox after an earlier attempt stopped early. Do not `init`.
+Continue from the first step without an entry, and never run create again if
+`map_<RFE>` is recorded. The validation feedback appended to this prompt
+says what was missing: complete only the missing work, and never edit
+artifacts or frontmatter just to satisfy a check. If the feedback reports
+wrong or inconsistent data rather than missing work, write a `failed` result.
+If the file shows a different `run_id`, write a `failed` result.
+
+Do not end your turn until `agent-result.json` is written. A skill's closing
+report or advice to the user is not the end of your work.
 
 ## Pipeline
 
@@ -54,46 +65,46 @@ Run these steps in order. Each step names the skill or helper that does the
 work; follow that skill's `SKILL.md` and do not reimplement its logic here.
 Do not run repository tests: strategy work is workflow output.
 
-1. **Start progress** with the run ID from the input file:
+1. **Start progress** (skip on a resume) with the run ID from the input file:
 
    ```bash
-   P="$FULLSEND_OUTPUT_DIR/strat-progress.yaml"
-   python3 scripts/state.py init "$P" run_id=<run_id> mode=single rfe=<RFE>
+   bash .fullsend/shared/progress.sh init run_id=<run_id> mode=single rfe=<RFE>
    ```
 
 2. **Create.** Run the `strategy-create` skill with exactly `RFE` as its
    argument (`/strategy-create RHAIRFE-NNNN`). The explicit key is the
    selection; the skill's status and label gates still apply. The skill finds
    an existing Cloners-linked STRAT before cloning (its Path A); never create a
-   second clone for an RFE. Then record `phase_create`.
+   second clone for an RFE.
 
    - If the skill skipped the RFE (it appears in `artifacts/strat-skipped.md`
-     and no strategy file was written), the run is `completed` with the RFE in
-     `skipped` and no strategies. Go to Output.
+     and no strategy file was written), `PROG mark phase_create`; the run is
+     `completed` with the RFE in `skipped` and no strategies. Go to Output.
    - Otherwise exactly one `artifacts/strat-tasks/RHAISTRAT-*.md` must exist
      whose frontmatter `source_rfe` is `RFE`. Read it with
-     `python3 scripts/frontmatter.py read <path>` and record the mapping:
-     `python3 scripts/state.py set "$P" map_<RFE>=<RHAISTRAT-key>`.
-     If no such file exists, or the file is named `STRAT-*` (no Jira key),
-     write a `failed` result.
+     `python3 scripts/frontmatter.py read <path>`, record the mapping with
+     `bash .fullsend/shared/progress.sh set map_<RFE>=<RHAISTRAT-key>`, then
+     `PROG mark phase_create`. If no such file exists, or the file is named
+     `STRAT-*` (no Jira key), write a `failed` result.
 
-3. **Refine.** Run `/strategy-refine <RHAISTRAT-key>`, then record
-   `phase_refine`. The strategy's frontmatter `status` must now be `Refined`.
+3. **Refine.** Run `/strategy-refine <RHAISTRAT-key>`; the strategy's
+   frontmatter `status` must now be `Refined`. Then
+   `PROG mark refine_<RHAISTRAT-key> phase_refine`.
 
 4. **Push.** Push the refined strategy to Jira with the deterministic helper,
-   then record `phase_push`. A non-zero exit is a `failed` result.
+   then `PROG mark phase_push`. A non-zero exit is a `failed` result.
 
    ```bash
    python3 scripts/push_refined_strategies.py --artifacts-dir artifacts/strat-tasks
    ```
 
-5. **Review.** Run `/strategy-review <RHAISTRAT-key>`, then record
-   `phase_review`. The review must read architecture context from
-   `.context/architecture-context/`, which the host fetched before you started.
-   If it is missing, do not review from the strategy text alone: write a
-   `failed` result saying the context is missing. A `revise` or `reject`
-   recommendation is a successful run that needs human follow-up; report it
-   truthfully and never change a verdict.
+5. **Review.** Run `/strategy-review <RHAISTRAT-key>`, then
+   `PROG mark review_<RHAISTRAT-key> phase_review`. The review must read
+   architecture context from `.context/architecture-context/`, which the host
+   fetched before you started. If it is missing, do not review from the
+   strategy text alone: write a `failed` result saying the context is missing.
+   A `revise` or `reject` recommendation is a successful run that needs human
+   follow-up; report it truthfully and never change a verdict.
 
 ## Rules
 
@@ -146,7 +157,7 @@ actually happened, not what was intended.
 - `skipped`: `{"key", "reason"}` for an RFE the create gate skipped.
 - `strategies`: `recommendation` and `needs_attention` copied from the review
   file's frontmatter.
-- `completed_phases`: the phases recorded in `strat-progress.yaml`, in order.
+- `completed_phases`: the `phase_` entries recorded in `tmp/strat-progress.yaml`, in order.
 - `architecture_context`: `available` when
   `.context/architecture-context/LATEST_VERSION` names a directory with
   `PLATFORM.md`; otherwise `missing`.

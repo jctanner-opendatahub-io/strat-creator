@@ -27,13 +27,16 @@ host_files:
 pre_script: strat-single/pre-strat-single.sh
 post_script: shared/post-strategy.sh
 
-# One attempt: a retry repeats Jira writes, and safe native resume is not yet
-# proven (ADR-0012). The validator still gates publication.
+# Two attempts, as in rfe-creator: a second iteration runs in the same
+# sandbox and resumes from tmp/strat-progress.yaml (per-phase and
+# per-strategy markers), with the validator's findings appended to the
+# prompt. The skills' label gates refuse a second review of a STRAT that
+# already has a verdict. The validator still gates publication.
 validation_loop:
   preflight_check: 'python3 -c "import jsonschema, yaml"'
   script: shared/validate-output.sh
   schema: shared/result.schema.json
-  max_iterations: 1
+  max_iterations: 2
   feedback_mode: append
 
 timeout_minutes: 90
